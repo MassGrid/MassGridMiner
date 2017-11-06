@@ -242,7 +242,7 @@ bool scanhash_cryptopp(struct thr_info * const thr, struct work * const work,
 	//uint32_t *nonce_w = (uint32_t *)(data +76);
 	//data += 64;
 
-	uint8_t sDest[500],temp[500];//,out[32];
+	uint8_t sDest[100],temp[500];//,out[32];
 	//Hex2Str((unsigned char *)work->data,sDest,76);
 	//applog(LOG_DEBUG,"%s",sDest);
 
@@ -256,9 +256,9 @@ bool scanhash_cryptopp(struct thr_info * const thr, struct work * const work,
 	//Hex2Str(data2,sDest,76);
 	//applog(LOG_DEBUG,"%s",sDest);
 
-
-	 for(int i=0;i<76;i++)
-	 	temp[i]=data[-i+8*(i/4)+3];
+	swap32yes(temp,data,80 / 4);
+	//  for(int i=0;i<76;++i)
+	//  	temp[i]=data[8*(i/4)+3-i];
 		//Hex2Str((unsigned char *)temp,sDest,76);
 		//applog(LOG_DEBUG,"计算hash前 %s",sDest);	
 	// Midstate and data are stored in little endian
@@ -299,7 +299,7 @@ bool scanhash_cryptopp(struct thr_info * const thr, struct work * const work,
 		//runhash(hash, hash1, sha256_init_state);
 
 		SHA256Reset(&ctx);
-		if (unlikely(hash32[7] <0x00000fff))
+		if (unlikely(hash32[7] <0x0000001f))
 		{
 			//Hex2Str((unsigned char *)work->data,sDest,76);
 			//applog(LOG_DEBUG,"%s",sDest);

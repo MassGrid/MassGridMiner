@@ -95,12 +95,9 @@ void SHA256Update(SHA256_CTX *ctx, const BYTE *in, size_t inLen) {
 		}
 	}
 }
-void	SHA256Reset(SHA256_CTX *ctx)
+void SHA256Reset(SHA256_CTX *ctx)
 {
-	memset(ctx->data,0,sizeof(ctx->data));
-	ctx->dataLength=0;
-	memset(ctx->hash,0,sizeof(ctx->hash));
-	ctx->totalLength=0; 
+	SHA256Initialize(ctx);
 
 }
 void SHA256Finalize(SHA256_CTX *ctx, BYTE *out) {

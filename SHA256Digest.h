@@ -23,5 +23,5 @@ void 	SHA256Update(SHA256_CTX *ctx, const BYTE *in, size_t inLen);
 void 	SHA256Finalize(SHA256_CTX *ctx, BYTE *out); 		//output buffer size must be at least SHA256_DIGEST_LENGTH
 void 	SHA256ComputeDigest(BYTE *in, size_t inLen, BYTE *out); //packaged function that deal with a single input buffer
 int 	SHA256DigestSize();
-
+void	SHA256Reset(SHA256_CTX *ctx);
 #endif
