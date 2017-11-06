@@ -49,7 +49,7 @@ bin_SCRIPTS = start-bfgminer.sh
 endif
 
 # first, our own stuff
-bfgminer_LDADD    = lib/libgnu.a ccan.bfg/libccan.a
+bfgminer_LDADD    = lib/libgnu.a ccan.bfg/libccan.a -lcrypto 
 bfgminer_LDFLAGS  =
 bfgminer_CPPFLAGS = -I$(top_builddir)/lib -I$(top_srcdir)/lib -I$(top_srcdir)/ccan-upstream
 
@@ -168,7 +168,10 @@ dist_kernels_DATA += \
 endif
 
 if USE_CPUMINING
-bfgminer_SOURCES	+= \
+bfgminer_SOURCES	+=crypto/scrypt.c crypto/blake.c crypto/bmw.c \
+crypto/groestl.c crypto/jh.c crypto/keccak.c crypto/skein.c \
+ crypto/luffa.c crypto/cubehash.c crypto/shavite.c crypto/simd.c \
+ crypto/echo.c crypto/hamsi.c crypto/fugue.c crypto/SHA256Digest.c \
 		  sha256_generic.c sha256_via.c	\
 		  sha256_cryptopp.c sha256_sse2_amd64.c		\
 		  sha256_sse4_amd64.c 	\

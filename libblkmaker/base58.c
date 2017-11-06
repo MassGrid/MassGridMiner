@@ -43,7 +43,6 @@ size_t blkmk_address_to_script(void *out, size_t outsz, const char *addr) {
 	if (!b58tobin(addrbin, &rv, addr, b58sz))
 		return 0;
 	addrver = b58check(addrbin, sizeof(addrbin), addr, b58sz);
-	printf("%d,sz%dsz",addrver,outsz);
 		switch (addrver) {
 		case   0:  // Bitcoin pubkey hash
 		case 111:  // Testnet pubkey hash

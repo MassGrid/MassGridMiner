@@ -17,10 +17,25 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-
+#include "crypto/SHA256Digest.h"
 #include "driver-cpu.h"
 #include "miner.h"
 
+
+#include "crypto/scrypt.h"
+#include "crypto/sph_blake.h"
+#include "crypto/sph_bmw.h"
+#include "crypto/sph_groestl.h"
+#include "crypto/sph_jh.h"
+#include "crypto/sph_keccak.h"
+#include "crypto/sph_skein.h"
+#include "crypto/sph_luffa.h"
+#include "crypto/sph_cubehash.h"
+#include "crypto/sph_shavite.h"
+#include "crypto/sph_simd.h"
+#include "crypto/sph_echo.h"
+#include "crypto/sph_hamsi.h"
+#include "crypto/sph_fugue.h"
 typedef uint32_t word32;
 
 static word32 rotrFixed(word32 word, unsigned int shift)
@@ -48,7 +63,6 @@ static const word32 SHA256_K[64] = {
 	0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
 	0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
 };
-
 #define blk2(i) (W[i&15]+=s1(W[(i-2)&15])+W[(i-7)&15]+s0(W[(i-15)&15]))
 
 #define Ch(x,y,z) (z^(x&(y^z)))
@@ -104,44 +118,239 @@ static void runhash(void *state, const void *input, const void *init)
 	memcpy(state, init, 32);
 	SHA256_Transform(state, input);
 }
+void Hex2Str(unsigned char *sSrc, unsigned char *sDest, int nSrcLen )  
+{  
+    int  i;  
+	unsigned char szTmp[3];  
+  
+    for( i = 0; i < nSrcLen; i++ )  
+    {  
+        sprintf( szTmp, "%02X", (unsigned char) sSrc[i] );  
+        memcpy( &sDest[i * 2], szTmp, 2 );  
+	}
+	sDest[i<<1]=0;  
+    return ;  
+}
+void Hex2byte(unsigned char *sSrc,unsigned char *sDest,int len)
+{
+	for(int i=0;i<len/2;i++)
+	{
+		unsigned char temp2=0;
+		if(sSrc[2*i]>=0x30&&sSrc[2*i]<=0x39)
+		temp2|=((sSrc[2*i]-0x30)<<4);
+		else if(sSrc[2*i]>=0x41&&sSrc[2*i]<=0x46)
+		temp2|=((sSrc[2*i]-0x37)<<4);
+		else
+		temp2|=((sSrc[2*i]-0x59)<<4);
+		if(sSrc[2*i+1]>=0x30&&sSrc[2*i+1]<=0x39)
+		temp2|=(sSrc[2*i+1]-0x30);
+		else if(sSrc[2*i+1]>=0x41&&sSrc[2*i+1]<=0x46)
+		temp2|=(sSrc[2*i+1]-0x37);
+		else
+		temp2|=(sSrc[2*i+1]-0x59);
+		sDest[i]=temp2;
+	}
 
+}
+void compute(int id,const unsigned char * input, unsigned char * hash)
+{
+	switch (id)
+	{
+	case 0:{sph_blake512_context     ctx_blake;
+		sph_blake512_init(&ctx_blake);
+		sph_blake512(&ctx_blake, input, 32);
+		sph_blake512_close(&ctx_blake, hash);
+		break;
+	}
+	case 1:{sph_bmw512_context       ctx_bmw;
+		sph_bmw512_init(&ctx_bmw);
+		sph_bmw512(&ctx_bmw, input, 32);
+		sph_bmw512_close(&ctx_bmw, hash);
+		break; }
+	case 2:{sph_groestl512_context   ctx_groestl;
+	sph_groestl512_init(&ctx_groestl);
+		sph_groestl512(&ctx_groestl, input, 32);
+		sph_groestl512_close(&ctx_groestl, hash);
+		break; }
+	case 3:{sph_skein512_context     ctx_skein;
+	sph_skein512_init(&ctx_skein);
+		sph_skein512(&ctx_skein, input, 32);
+		sph_skein512_close(&ctx_skein, hash);
+		break; }
+	case 4:{sph_jh512_context        ctx_jh;
+	sph_jh512_init(&ctx_jh);
+		sph_jh512(&ctx_jh, input, 32);
+		sph_jh512_close(&ctx_jh, hash);
+		break; }
+	case 5:{sph_keccak512_context    ctx_keccak;
+	sph_keccak512_init(&ctx_keccak);
+		sph_keccak512(&ctx_keccak, input, 32);
+		sph_keccak512_close(&ctx_keccak, hash);
+		break; }
+	case 6:{sph_luffa512_context	ctx_luffa1;
+	sph_luffa512_init(&ctx_luffa1);
+		sph_luffa512(&ctx_luffa1, input, 32);
+		sph_luffa512_close(&ctx_luffa1, hash);
+		break; }
+	case 7:{sph_cubehash512_context	ctx_cubehash1;
+	sph_cubehash512_init(&ctx_cubehash1);
+		sph_cubehash512(&ctx_cubehash1, input, 32);
+		sph_cubehash512_close(&ctx_cubehash1, hash);
+		break; }
+	case 8:{sph_shavite512_context	ctx_shavite1;
+	sph_shavite512_init(&ctx_shavite1);
+		sph_shavite512(&ctx_shavite1, input, 32);
+		sph_shavite512_close(&ctx_shavite1, hash);
+		break; }
+	case 9:{sph_simd512_context		ctx_simd1;
+	sph_simd512_init(&ctx_simd1);
+		sph_simd512(&ctx_simd1, input, 32);
+		sph_simd512_close(&ctx_simd1, hash);
+		break; }
+	case 10:{sph_echo512_context		ctx_echo1;
+	sph_echo512_init(&ctx_echo1);
+		sph_echo512(&ctx_echo1, input, 32);
+		sph_echo512_close(&ctx_echo1, hash);
+		break; }
+	case 11:{sph_hamsi512_context	ctx_hamsi1;
+	sph_hamsi512_init(&ctx_hamsi1);
+		sph_hamsi512(&ctx_hamsi1, input, 32);
+		sph_hamsi512_close(&ctx_hamsi1, hash);
+		break; }
+	default:{
+		sph_fugue512_context	ctx_fugue1;
+		sph_fugue512_init(&ctx_fugue1);
+		sph_fugue512(&ctx_fugue1, input, 32);
+		sph_fugue512_close(&ctx_fugue1, hash);
+		break; }
+	}
+}
 /* suspiciously similar to ScanHash* from bitcoin */
 bool scanhash_cryptopp(struct thr_info * const thr, struct work * const work,
 	        uint32_t max_nonce, uint32_t *last_nonce,
 		uint32_t n)
 {
-	const uint8_t *midstate = work->midstate;
-	uint8_t *data = work->data;
-	uint8_t hash1[0x40];
-	memcpy(hash1, hash1_init, sizeof(hash1));
+	// const uint8_t *midstate = work->midstate;
+	const uint8_t *data = work->data;
+	// uint8_t hash1[0x40];
+	// memcpy(hash1, hash1_init, sizeof(hash1));
 	uint8_t * const hash = work->hash;
-	
-	uint32_t *hash32 = (uint32_t *) hash;
-	uint32_t *nonce = (uint32_t *)(data + 76);
+	//uint16_t * const hash3 = work->hash;
+	uint32_t *const hash32 = (uint32_t *) hash;
+	uint32_t *const nonce = (uint32_t *)(data + 76);
 
-	data += 64;
+	//uint32_t *nonce_w = (uint32_t *)(data +76);
+	//data += 64;
 
+	uint8_t sDest[500],temp[500];//,out[32];
+	//Hex2Str((unsigned char *)work->data,sDest,76);
+	//applog(LOG_DEBUG,"%s",sDest);
+
+
+	//Hex2Str((unsigned char *)work->data,sDest,80);
+	//applog(LOG_DEBUG,"cpu:%d %s",thr->id,sDest);
+	//uint8_t data2[80]; 
+	//memcpy(data2,data,80);
+											//Hex2Str(data,sDest,128);
+											//applog(LOG_DEBUG,"cpu:%d 1%s",thr->id,sDest);
+	//Hex2Str(data2,sDest,76);
+	//applog(LOG_DEBUG,"%s",sDest);
+
+
+	 for(int i=0;i<76;i++)
+	 	temp[i]=data[-i+8*(i/4)+3];
+		//Hex2Str((unsigned char *)temp,sDest,76);
+		//applog(LOG_DEBUG,"计算hash前 %s",sDest);	
 	// Midstate and data are stored in little endian
-	LOCAL_swap32le(unsigned char, midstate, 32/4)
-	LOCAL_swap32le(unsigned char, data, 64/4)
-	uint32_t *nonce_w = (uint32_t *)(data + 12);
+	//LOCAL_swap32le(unsigned char, midstate, 32/4)
+	//LOCAL_swap32le(unsigned char, data, 64/4)
+
+
+	uint8_t base[32],output1[32],output2[32];
+	// uint32_t n2=8212953;
+	// unsigned char tmmm[]="04000000FF649D499DC996E62B8E50620D996D17A95B99AC59E4C3FBD968FF23CE040000BA3BA0A6656B0EA892D66F982AD14F70707627FCE2DA3B51E2AAEC25A041A3B782F1F959F0FF0F1E";
+	// unsigned char temps[80];
+	// Hex2byte(tmmm,temps,152);
+	// SHA256_CTX ctx1;
+	// SHA256Initialize(&ctx1);
+	// SHA256Update(&ctx1,(BYTE*)temps,76);
+	// SHA256Update(&ctx1,(BYTE*)&n2,4);
+	// SHA256Finalize(&ctx1,(BYTE*)hash);
+	 //Hex2Str((unsigned char *)hash,sDest,32);
+	// applog(LOG_DEBUG,"%s",sDest);
 
 	while (1) {
-		*nonce_w = n;
+		*nonce = n;
+		
+		SHA256_CTX ctx;
+		SHA256Initialize(&ctx);
+		SHA256Update(&ctx,(BYTE*)temp,76);
+		SHA256Update(&ctx,(BYTE*)&n,4);
+		SHA256Finalize(&ctx,(BYTE*)base);
+		int id0=(((uint16_t *)&base)[0])%13;
+		int id1=(((uint16_t *)&base)[1])%13;
+		compute(id0,base,output1);
+		compute(id1,output1,output2);
+		scrypt_1024_1_1_256(output2,sizeof(output2),(uint8_t*)hash);
+		//Hex2Str((unsigned char *)temp,sDest,32);
+		//applog(LOG_DEBUG,"%s",sDest);
 
-		runhash(hash1, data, midstate);
-		runhash(hash, hash1, sha256_init_state);
+		//runhash(hash1, data, midstate);
+		//runhash(hash, hash1, sha256_init_state);
 
-		if (unlikely((hash32[7] == 0)))
+		SHA256Reset(&ctx);
+		if (unlikely(hash32[7] <0x00000fff))
 		{
+			//Hex2Str((unsigned char *)work->data,sDest,76);
+			//applog(LOG_DEBUG,"%s",sDest);
+			//sleep(0);
+			//applog(LOG_DEBUG,"%p",n);
+			Hex2Str((uint8_t *)&n,sDest,0);
+			//applog(LOG_DEBUG,"%p",n);
+			//applog(LOG_DEBUG,"n %s %d",sDest,n);
+			//Hex2Str((unsigned char *)work->data,sDest,80);
+			//applog(LOG_DEBUG,"source %s",sDest);
+			//Hex2Str((unsigned char *)hash,sDest,32);
+			//applog(LOG_DEBUG,"found:%s\nnonce %d",sDest,n);
+			
+											//Hex2Str(data,sDest,128);
+											//applog(LOG_DEBUG,"cpu:%d %s",thr->id,sDest);
+			//for(int i=0;i<32;i++)
+			//temp[i]=hash[-i+8*(i/4)+3];
+			//Hex2Str((unsigned char *)temp,sDest,32);
+
+			//applog(LOG_DEBUG,"nonce %d",n);
+
+
+			//unsigned char * hashas=work->hash;
+			// Hex2Str(base,sDest,32);
+			// applog(LOG_DEBUG,"base %s",sDest);
+			// Hex2Str(output1,sDest,32);
+			// applog(LOG_DEBUG,"output1 %s",sDest);
+			// Hex2Str(output2,sDest,32);
+			// applog(LOG_DEBUG,"output2 %s",sDest);
+			// Hex2Str((unsigned char *)hash,sDest,32);
+			// applog(LOG_DEBUG,"hash %s",sDest);
+
+
 			*nonce = htole32(n);
 			*last_nonce = n;
+			//for(int i=0;i<32;i++)
+			//work->hash[i]=temp[i];
+			// Hex2Str((unsigned char *)work->data,sDest,80);
+			// applog(LOG_DEBUG,"result %s",sDest);
+
+
+			// Hex2Str((unsigned char *)work->hash,sDest,32);
+			// applog(LOG_DEBUG,"wrokhash %s  address ：%d",sDest,work->hash);
+
 			return true;
 		}
 
 		if ((n >= max_nonce) || thr->work_restart) {
 			*nonce = htole32(n);
 			*last_nonce = n;
+			//applog(LOG_DEBUG,"none");
 			return false;
 		}
 
@@ -613,9 +822,9 @@ bool scanhash_asm32(struct thr_info * const thr, struct work * const work,
 
 	while (1) {
 		*nonce = n;
-
-		runhash32(hash1, data, midstate);
-		runhash32(hash, hash1, sha256_init_state);
+		SHA256_CTX ctx;
+		// runhash32(hash1, data, midstate);
+		// runhash32(hash, hash1, sha256_init_state);
 
 		if (unlikely(hash32[7] == 0))
 		{

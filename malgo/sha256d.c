@@ -28,7 +28,7 @@ void hash_data(void *out_hash, const void *data)
 	swap32yes(blkheader, data, 80 / 4);
 	
 	// double-SHA256 to get the block hash
-	gen_hash(blkheader, out_hash, 80);
+	//gen_hash(blkheader, out_hash, 80);
 }
 
 #ifdef USE_OPENCL

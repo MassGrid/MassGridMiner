@@ -4561,7 +4561,7 @@ void update_block_display_line(const int blky, struct mining_goal_info *goal)
 	if (blkinfo->height)
 	{
 		income = goal->diff_accepted * 3600 * blkchain->currentblk_subsidy / total_secs / goal->current_diff;
-		format_unit3(incomestr, sizeof(incomestr), FUP_BTC, "BTC/hr", H2B_SHORT, income/1e8, -1);
+		format_unit3(incomestr, sizeof(incomestr), FUP_BTC, "Coin/hr", H2B_SHORT, income/1e8, -1);
 	}
 	else
 		strcpy(incomestr, "?");
@@ -5365,8 +5365,8 @@ static char *submit_upstream_work_request(struct work *work)
 		blktemplate_t * const tmpl = work->tr->tmpl;
 		json_t *req;
 		unsigned char data[80];
-		
 		swap32yes(data, work->data, 80 / 4);
+		//uint32_t nonce=((uint32_t*)&work->data[76]);
 #if BLKMAKER_VERSION > 6
 		if (work->stratum) {
 			req = blkmk_submitm_jansson(tmpl, data, bytes_buf(&work->nonce2), bytes_len(&work->nonce2), le32toh(*((uint32_t*)&work->data[76])), work->do_foreign_submit);
@@ -5377,11 +5377,12 @@ static char *submit_upstream_work_request(struct work *work)
 			req = blkmk_submit_foreign_jansson(tmpl, data, work->dataid, le32toh(*((uint32_t*)&work->data[76])));
 		else
 #endif
-			req = blkmk_submit_jansson(tmpl, data, work->dataid, le32toh(*((uint32_t*)&work->data[76])));
+			req = blkmk_submit_jansson(tmpl, data, work->dataid, *((uint32_t*)&data[76]));
 		s = json_dumps(req, 0);
 		json_decref(req);
 		sd = malloc(161);
 		bin2hex(sd, data, 80);
+		applog(LOG_DEBUG,"submit %s",s);
 	} else {
 
 	/* build hex string */
@@ -12202,7 +12203,7 @@ err:
 	pool->failover_only = true;
 	add_pool_details(pool, *live_p, uri, rpcuser, rpcpass);
 	
-	applog(LOG_NOTICE, "Added local bitcoin RPC server on %s as pool %d", hfuri, pool->pool_no);
+	applog(LOG_NOTICE, "Added local mlgbcoin RPC server on %s as pool %d", hfuri, pool->pool_no);
 	
 out:
 	return false;
