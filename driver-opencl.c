@@ -30,6 +30,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "crypto/SHA256Digest.h"
 #include <sys/types.h>
 
 #ifndef WIN32
@@ -46,7 +47,6 @@
 #include "ocl.h"
 #include "adl.h"
 #include "util.h"
-
 /* TODO: cleanup externals ********************/
 
 
@@ -79,6 +79,14 @@ CL_API_ENTRY cl_int CL_API_CALL
                 size_t *        /* param_value_size_ret */) CL_API_SUFFIX__VERSION_1_0;
 
 /* Context APIs  */
+CL_API_ENTRY cl_context CL_API_CALL
+(*clCreateContext)(const cl_context_properties * /* properties */,
+                cl_uint                       /* num_devices */,
+                const cl_device_id *          /* devices */,
+                void (CL_CALLBACK * /* pfn_notify */)(const char *, const void *, size_t, void *),
+                void *                        /* user_data */,
+                cl_int *                      /* errcode_ret */) CL_API_SUFFIX__VERSION_1_0;
+
 CL_API_ENTRY cl_context CL_API_CALL
 (*clCreateContextFromType)(const cl_context_properties * /* properties */,
                         cl_device_type          /* device_type */,
@@ -229,13 +237,13 @@ load_opencl_symbols() {
 	{
 		applog(LOG_ERR, "Failed to load OpenCL library, no GPUs usable");
 		return false;
-	}
-	
+ 	}
 	LOAD_OCL_SYM(clGetPlatformIDs);
 	LOAD_OCL_SYM(clGetPlatformInfo);
 	LOAD_OCL_SYM(clGetDeviceIDs);
 	LOAD_OCL_SYM(clGetDeviceInfo);
 	LOAD_OCL_SYM(clCreateContextFromType);
+	LOAD_OCL_SYM(clCreateContext);
 	LOAD_OCL_SYM(clReleaseContext);
 	LOAD_OCL_SYM(clCreateCommandQueue);
 	LOAD_OCL_SYM(clReleaseCommandQueue);
@@ -1075,7 +1083,60 @@ cl_int queue_poclbm_kernel(const struct opencl_kernel_info * const kinfo, _clSta
 
 	return status;
 }
+cl_int queue_jumphash_kernel(const struct opencl_kernel_info * const kinfo, _clState * const clState, struct work * const work, const cl_uint threads)
+{
+	struct opencl_work_data * const blk = _opencl_work_data(work);
+	const cl_kernel * const kernel = &kinfo->kernel;
+	unsigned int num = 0;
+	cl_int status = 0;
 
+	CL_SET_BLKARG(ctx_a);
+	CL_SET_BLKARG(ctx_b);
+	CL_SET_BLKARG(ctx_c);
+	CL_SET_BLKARG(ctx_d);
+	CL_SET_BLKARG(ctx_e);
+	CL_SET_BLKARG(ctx_f);
+	CL_SET_BLKARG(ctx_g);
+	CL_SET_BLKARG(ctx_h);
+
+	CL_SET_BLKARG(cty_b);
+	CL_SET_BLKARG(cty_c);
+
+	
+	CL_SET_BLKARG(cty_f);
+	CL_SET_BLKARG(cty_g);
+	CL_SET_BLKARG(cty_h);
+
+	if (!kinfo->goffset)
+	{
+		cl_uint vwidth = clState->vwidth;
+		uint *nonces = alloca(sizeof(uint) * vwidth);
+		unsigned int i;
+
+		for (i = 0; i < vwidth; i++)
+			nonces[i] = work->blk.nonce + (i * threads);
+		CL_SET_VARG(vwidth, nonces);
+	}
+
+	CL_SET_BLKARG(fW0);
+	CL_SET_BLKARG(fW1);
+	CL_SET_BLKARG(fW2);
+	CL_SET_BLKARG(fW3);
+	CL_SET_BLKARG(fW15);
+	CL_SET_BLKARG(fW01r);
+
+	CL_SET_BLKARG(D1A);
+	CL_SET_BLKARG(C1addK5);
+	CL_SET_BLKARG(B1addK6);
+	CL_SET_BLKARG(W16addK16);
+	CL_SET_BLKARG(W17addK17);
+	CL_SET_BLKARG(PreVal4addT1);
+	CL_SET_BLKARG(PreVal0);
+
+	CL_SET_ARG(clState->outputBuffer);
+
+	return status;
+}
 static
 cl_int queue_phatk_kernel(const struct opencl_kernel_info * const kinfo, _clState * const clState, struct work * const work, __maybe_unused const cl_uint threads)
 {
@@ -1307,6 +1368,20 @@ struct opencl_kernel_interface kernel_interfaces[] = {
 	{"phatk",   queue_phatk_kernel  },
 	{"diakgcn", queue_diakgcn_kernel},
 	{"diablo",  queue_diablo_kernel },
+	{"blake",   queue_jumphash_kernel  },
+	{"bmw",		queue_jumphash_kernel },
+	{"groestl", queue_jumphash_kernel },
+	{"skein", queue_jumphash_kernel },
+	{"jh", queue_jumphash_kernel },
+	{"keccak", queue_jumphash_kernel },
+	{"luffa", queue_jumphash_kernel },
+	{"cubehash", queue_jumphash_kernel },
+	{"shavite", queue_jumphash_kernel },
+	{"simd", queue_jumphash_kernel },
+	{"echo", queue_jumphash_kernel },
+	{"hamsi", queue_jumphash_kernel },
+	{"fugue", queue_jumphash_kernel },
+	{"sha256d",queue_jumphash_kernel },
 #endif
 #ifdef USE_OPENCL_FULLHEADER
 	{"fullheader", queue_fullheader_kernel },
@@ -1753,26 +1828,139 @@ const struct opencl_kernel_info *opencl_scanhash_get_kernel(struct cgpu_info * c
 	}
 	return kernelinfo;
 }
+int buildKernel(int thr_id,int algorithmId) {
+	char *filename;
+		switch (algorithmId) {
+		case 0:
+			filename = "blake.cl";
+			break;
+		case 1:
+			filename = "bmw.cl";
+			break;
+		case 2:
+			filename = "groestl.cl";
+			break;
+		case 3:
+			filename = "skein.cl";
+			break;
+		case 4:
+			filename = "jh.cl";
+			break;
+		case 5:
+			filename = "keccak.cl";
+			break;
+		case 6:
+			filename = "luffa.cl";
+			break;
+		case 7:
+			filename = "cubehash.cl";
+			break;
+		case 8:
+			filename = "shavite.cl";
+			break;
+		case 9:
+			filename = "simd.cl";
+			break;
+		case 10:
+			filename = "echo.cl";
+			break;
+		case 11:
+			filename = "hamsi.cl";
+			break;
+		case 12:
+			filename = "fugue.cl";
+			break;
+		case 13:
+			filename = "sha256d.cl";
+			break;
+		default:
+			filename = "bmw.cl";
+			break;
+		}
+		applog(LOG_DEBUG,"choose algorithm: %s\n", filename);
+		size_t sourceSize[] = { 0 };
+		const char *source = file_contents(filename, sourceSize);
+		cl_int	status;
+		clStates[thr_id]->program[algorithmId] = clCreateProgramWithSource(clStates[thr_id]->context, 1, &source, sourceSize, NULL);
 
+		/*Step 6: Build program. */
+		applog(LOG_DEBUG,"build program...");
+		status = clBuildProgram(clStates[thr_id]->program[algorithmId], 1, &clStates[thr_id]->devid, "-I opencl", NULL, NULL);
+		if (status != CL_SUCCESS)
+		{
+			int temp=status;
+			applog(LOG_ERR,"fail\n");
+			size_t len;
+			char buffer[204800];
+			cl_build_status bldstatus;
+			applog(LOG_ERR,"\nError %d:\n", status);
+			status = clGetProgramBuildInfo(clStates[thr_id]->program[algorithmId], clStates[thr_id]->devid, CL_PROGRAM_BUILD_STATUS, sizeof(bldstatus), (void *)&bldstatus, &len);
+			applog(LOG_DEBUG,"Build Status %d:\n", status);
+			if (bldstatus == CL_BUILD_SUCCESS) applog(LOG_DEBUG,"Build Status: CL_BUILD_SUCCESS\n");
+			if (bldstatus == CL_BUILD_NONE) applog(LOG_ERR,"Build Status: CL_BUILD_NONE\n");
+			if (bldstatus == CL_BUILD_ERROR) applog(LOG_ERR,"Build Status: CL_BUILD_ERROR\n");
+			if (bldstatus == CL_BUILD_IN_PROGRESS) applog(LOG_ERR,"Build Status: CL_BUILD_IN_PROGRESS\n");
+			status = clGetProgramBuildInfo(clStates[thr_id]->program[algorithmId], clStates[thr_id]->devid, CL_PROGRAM_BUILD_OPTIONS, sizeof(buffer), buffer, &len);
+			applog(LOG_DEBUG,"Build Options: %s\n", buffer);
+			status = clGetProgramBuildInfo(clStates[thr_id]->program[algorithmId], clStates[thr_id]->devid, CL_PROGRAM_BUILD_LOG, sizeof(buffer), buffer, &len);
+			applog(LOG_DEBUG,"Build Log:\n%s\n", buffer);
+			return temp;
+		}
+	
+	//Step 8: Create kernel object 
+	applog(LOG_DEBUG,"done\n");
+	
+	return status;
+}
+
+void Hex2Str(unsigned char *sSrc, unsigned char *sDest, int nSrcLen)
+{
+	int  i;
+	 char szTmp[3];
+
+	for (i = 0; i < nSrcLen; i++)
+	{
+		sprintf(szTmp, "%02X", (unsigned char)sSrc[i]);
+		memcpy(&sDest[i * 2], szTmp, 2);
+	}
+	sDest[i << 1] = 0;
+	return;
+}
 static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 				int64_t __maybe_unused max_nonce)
 {
 	const int thr_id = thr->id;
 	struct opencl_thread_data *thrdata = thr->cgpu_data;
-	struct cgpu_info *gpu = thr->cgpu;
+	struct cgpu_info *gpu = thr->cgpu;		//maxhash？
 	struct opencl_device_data * const data = gpu->device_data;
 	_clState *clState = clStates[thr_id];
-	const struct mining_algorithm * const malgo = work_mining_algorithm(work);
-	const struct opencl_kernel_info *kinfo = opencl_scanhash_get_kernel(gpu, clState, malgo);
-	if (!kinfo)
-		return -1;
-	const cl_kernel * const kernel = &kinfo->kernel;
-	const int dynamic_us = opt_dynamic_interval * 1000;
+	const uint8_t *data1 = work->data;
+	uint8_t * const hash = work->hash;
+	uint32_t *const hash32 = (uint32_t *) hash;
+	uint8_t sDest[65],temp[500],base[32];
+	swap32yes(temp,data1,80 / 4);
+	SHA256_CTX ctx;
+	SHA256Initialize(&ctx);
+	SHA256Update(&ctx,(BYTE*)temp,76);
+	SHA256Finalize(&ctx,(BYTE*)base);
+	Hex2Str(base,sDest,32);
+	int id=(((uint16_t *)&base)[0])%13;
 
 	cl_int status;
+	if(!clState->isbuildkernel)
+	{
+		for(int i=0; i<14;++i)
+		buildKernel(thr_id,i);
+		clState->isbuildkernel=!clState->isbuildkernel;
+	}
+
+	clState->kernel[0] =clCreateKernel(clState->program[id], "scanHash_pre", &status);
+	clState->kernel[1] = clCreateKernel(clState->program[13], "scanHash_post",&status);
+	const struct mining_algorithm * const malgo = work_mining_algorithm(work);
 	size_t globalThreads[1];
-	size_t localThreads[1] = { kinfo->wsize };
+	size_t localThreads[1] = { 0 };
 	int64_t hashes;
+	const int dynamic_us = opt_dynamic_interval * 1000;
 	int found = FOUND;
 	int buffersize = BUFFERSIZE;
 #ifdef USE_SCRYPT
@@ -1811,29 +1999,44 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 
 	if (data->oclthreads < localThreads[0])
 		data->oclthreads = localThreads[0];
-	globalThreads[0] = data->oclthreads;
+	globalThreads[0] = GLOBALTHREAD;
 	hashes = globalThreads[0];
 	hashes *= clState->vwidth;
-	
+
 	if (hashes > gpu->max_hashes)
 		gpu->max_hashes = hashes;
 
-	status = kinfo->queue_kernel_parameters(kinfo, clState, work, globalThreads[0]);
+	const ulong* p_target=(ulong *) work->target;
+	clState->target= p_target[3];
+	clState->target>>=8;
+	clState->nonceStart=work->blk.nonce;
+	status=clEnqueueWriteBuffer(clState->commandQueue,clState->inputBuffer,CL_FALSE, 0, 64 * sizeof(uint8_t), (void *)sDest, 0, NULL, NULL);
+
+	
+	status = clSetKernelArg(clState->kernel[0], 0, sizeof(cl_mem), &clState->inputBuffer);
+	status = clSetKernelArg(clState->kernel[0], 1, sizeof(cl_mem), &clState->deviceBuffer);
+	status = clSetKernelArg(clState->kernel[0], 2, sizeof(cl_uint), &clState->nonceStart);
+	status = clSetKernelArg(clState->kernel[1], 0, sizeof(cl_mem), &clState->deviceBuffer);
+	status = clSetKernelArg(clState->kernel[1], 1, sizeof(cl_mem), &clState->outputBuffer);
+	status = clSetKernelArg(clState->kernel[1], 2, sizeof(cl_ulong), &clState->target);
+
+
 	if (unlikely(status != CL_SUCCESS)) {
 		applog(LOG_ERR, "Error: clSetKernelArg of all params failed.");
 		return -1;
 	}
 
-	if (kinfo->goffset)
-	{
-		size_t global_work_offset[1];
+		status = clEnqueueNDRangeKernel(clState->commandQueue, clState->kernel[0], 1, 0, globalThreads, 0, 0, NULL, NULL);
 
-		global_work_offset[0] = work->blk.nonce;
-		status = clEnqueueNDRangeKernel(clState->commandQueue, *kernel, 1, global_work_offset,
-						globalThreads, localThreads, 0,  NULL, NULL);
-	} else
-		status = clEnqueueNDRangeKernel(clState->commandQueue, *kernel, 1, NULL,
-						globalThreads, localThreads, 0,  NULL, NULL);
+		if (unlikely(status != CL_SUCCESS)) {
+			applog(LOG_ERR, "Error %d: Enqueueing kernel onto command queue. (clEnqueueNDRangeKernel)0", status);
+			return -1;
+		}
+		//Step 9: Sets Kernel arguments.
+		//Step 10: Running the kernel.
+		status = clEnqueueNDRangeKernel(clState->commandQueue, clState->kernel[1], 1, 0, globalThreads, 0, 0, NULL, NULL);
+
+
 	if (unlikely(status != CL_SUCCESS)) {
 		applog(LOG_ERR, "Error %d: Enqueueing kernel onto command queue. (clEnqueueNDRangeKernel)", status);
 		return -1;
@@ -1845,7 +2048,7 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 		applog(LOG_ERR, "Error: clEnqueueReadBuffer failed error %d. (clEnqueueReadBuffer)", status);
 		return -1;
 	}
-
+	
 	/* The amount of work scanned can fluctuate when intensity changes
 	 * and since we do this one cycle behind, we increment the work more
 	 * than enough to prevent repeating work */
@@ -1856,15 +2059,17 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 
 	/* FOUND entry is used as a counter to say how many nonces exist */
 	if (thrdata->res[found]) {
+		for(int i=0;i<buffersize/sizeof(uint)&&thrdata->res[i]!=0;++i)
+			thrdata->res[i]+=clState->nonceStart;
 		/* Clear the buffer again */
 		status = clEnqueueWriteBuffer(clState->commandQueue, clState->outputBuffer, CL_FALSE, 0,
-					      buffersize, blank_res, 0, NULL, NULL);
+			buffersize, blank_res, 0, NULL, NULL);
 		if (unlikely(status != CL_SUCCESS)) {
 			applog(LOG_ERR, "Error: clEnqueueWriteBuffer failed.");
 			return -1;
 		}
 		applog(LOG_DEBUG, "GPU %d found something?", gpu->device_id);
-		postcalc_hash_async(thr, work, thrdata->res, kinfo->interface);
+		postcalc_hash_async(thr, work, thrdata->res, KL_POCLBM);
 		memset(thrdata->res, 0, buffersize);
 		/* This finish flushes the writebuffer set with CL_FALSE in clEnqueueWriteBuffer */
 		clFinish(clState->commandQueue);

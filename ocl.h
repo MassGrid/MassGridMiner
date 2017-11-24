@@ -15,6 +15,7 @@
 #elif USE_OPENCL_FULLHEADER
 #	define MAX_CLBUFFER0_SZ  FULLHEADER_CLBUFFER0_SZ
 #endif
+#define GLOBALTHREAD 0x10000
 
 struct mining_algorithm;
 struct opencl_kernel_info;
@@ -24,11 +25,18 @@ struct _clState {
 	cl_device_id devid;
 	char *platform_ver_str;
 	bool is_mesa;
-	
+
+	bool isbuildkernel;
 	cl_context context;
 	cl_command_queue commandQueue;
-	
+	cl_mem inputBuffer;
+	cl_mem deviceBuffer;
+
 	cl_mem outputBuffer;
+	cl_program program[14];
+	cl_kernel kernel[2];
+	uint nonceStart;
+	ulong target;
 #ifdef MAX_CLBUFFER0_SZ
 	cl_mem CLbuffer0;
 #endif

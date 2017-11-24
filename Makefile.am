@@ -132,7 +132,7 @@ endif
 
 
 if USE_OPENCL
-bfgminer_SOURCES += driver-opencl.h driver-opencl.c
+bfgminer_SOURCES += driver-opencl.h driver-opencl.c crypto/SHA256Digest.c 
 bfgminer_SOURCES += ocl.c ocl.h findnonce.c findnonce.h
 bfgminer_SOURCES += adl.c adl.h adl_functions.h
 

@@ -1,133 +1,798 @@
+/* $Id: keccak.c 259 2011-07-19 22:11:27Z tp $ */
 /*
- * Scrypt-jane public domain, OpenCL implementation of scrypt(keccak,chacha,SCRYPTN,1,1) 2013 mtrlt
+ * Keccak implementation.
+ *
+ * ==========================(LICENSE BEGIN)============================
+ *
+ * Copyright (c) 2007-2010  Projet RNRT SAPHIR
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+ * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+ * CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+ * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+ * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * ===========================(LICENSE END)=============================
+ *
+ * @author   Thomas Pornin <thomas.pornin@cryptolog.com>
  */
 
-// kernel-interface: fullheader Keccak
+// kernel-interface: keccak JumpHash
+#ifdef __cplusplus
+extern "C"{
+#endif
 
-#define ARGS_25(x) x ## 0, x ## 1, x ## 2, x ## 3, x ## 4, x ## 5, x ## 6, x ## 7, x ## 8, x ## 9, x ## 10, x ## 11, x ## 12, x ## 13, x ## 14, x ## 15, x ## 16, x ## 17, x ## 18, x ## 19, x ## 20, x ## 21, x ## 22, x ## 23, x ## 24
+/*
+ * Parameters:
+ *
+ *  SPH_KECCAK_64          use a 64-bit type
+ *  SPH_KECCAK_UNROLL      number of loops to unroll (0/undef for full unroll)
+ *  SPH_KECCAK_INTERLEAVE  use bit-interleaving (32-bit type only)
+ *  SPH_KECCAK_NOCOPY      do not copy the state into local variables
+ * 
+ * If there is no usable 64-bit type, the code automatically switches
+ * back to the 32-bit implementation.
+ *
+ * Some tests on an Intel Core2 Q6600 (both 64-bit and 32-bit, 32 kB L1
+ * code cache), a PowerPC (G3, 32 kB L1 code cache), an ARM920T core
+ * (16 kB L1 code cache), and a small MIPS-compatible CPU (Broadcom BCM3302,
+ * 8 kB L1 code cache), seem to show that the following are optimal:
+ *
+ * -- x86, 64-bit: use the 64-bit implementation, unroll 8 rounds,
+ * do not copy the state; unrolling 2, 6 or all rounds also provides
+ * near-optimal performance.
+ * -- x86, 32-bit: use the 32-bit implementation, unroll 6 rounds,
+ * interleave, do not copy the state. Unrolling 1, 2, 4 or 8 rounds
+ * also provides near-optimal performance.
+ * -- PowerPC: use the 64-bit implementation, unroll 8 rounds,
+ * copy the state. Unrolling 4 or 6 rounds is near-optimal.
+ * -- ARM: use the 64-bit implementation, unroll 2 or 4 rounds,
+ * copy the state.
+ * -- MIPS: use the 64-bit implementation, unroll 2 rounds, copy
+ * the state. Unrolling only 1 round is also near-optimal.
+ *
+ * Also, interleaving does not always yield actual improvements when
+ * using a 32-bit implementation; in particular when the architecture
+ * does not offer a native rotation opcode (interleaving replaces one
+ * 64-bit rotation with two 32-bit rotations, which is a gain only if
+ * there is a native 32-bit rotation opcode and not a native 64-bit
+ * rotation opcode; also, interleaving implies a small overhead when
+ * processing input words).
+ *
+ * To sum up:
+ * -- when possible, use the 64-bit code
+ * -- exception: on 32-bit x86, use 32-bit code
+ * -- when using 32-bit code, use interleaving
+ * -- copy the state, except on x86
+ * -- unroll 8 rounds on "big" machine, 2 rounds on "small" machines
+ */
 
-__constant uint2 keccak_round_constants[24] = {
-	(uint2)(0x00000001,0x00000000), (uint2)(0x00008082,0x00000000),
-	(uint2)(0x0000808a,0x80000000), (uint2)(0x80008000,0x80000000),
-	(uint2)(0x0000808b,0x00000000), (uint2)(0x80000001,0x00000000),
-	(uint2)(0x80008081,0x80000000), (uint2)(0x00008009,0x80000000),
-	(uint2)(0x0000008a,0x00000000), (uint2)(0x00000088,0x00000000),
-	(uint2)(0x80008009,0x00000000), (uint2)(0x8000000a,0x00000000),
-	(uint2)(0x8000808b,0x00000000), (uint2)(0x0000008b,0x80000000),
-	(uint2)(0x00008089,0x80000000), (uint2)(0x00008003,0x80000000),
-	(uint2)(0x00008002,0x80000000), (uint2)(0x00000080,0x80000000),
-	(uint2)(0x0000800a,0x00000000), (uint2)(0x8000000a,0x80000000),
-	(uint2)(0x80008081,0x80000000), (uint2)(0x00008080,0x80000000),
-	(uint2)(0x80000001,0x00000000), (uint2)(0x80008008,0x80000000)
+/*
+ * Unroll 8 rounds on big systems, 2 rounds on small systems.
+ */
+#ifndef SPH_KECCAK_UNROLL
+#if SPH_SMALL_FOOTPRINT_KECCAK
+#define SPH_KECCAK_UNROLL   2
+#else
+#define SPH_KECCAK_UNROLL   8
+#endif
+#endif
+
+#include "util_hash.cl"
+    
+__constant const sph_u64 RC[] = {
+	SPH_C64(0x0000000000000001), SPH_C64(0x0000000000008082),
+	SPH_C64(0x800000000000808A), SPH_C64(0x8000000080008000),
+	SPH_C64(0x000000000000808B), SPH_C64(0x0000000080000001),
+	SPH_C64(0x8000000080008081), SPH_C64(0x8000000000008009),
+	SPH_C64(0x000000000000008A), SPH_C64(0x0000000000000088),
+	SPH_C64(0x0000000080008009), SPH_C64(0x000000008000000A),
+	SPH_C64(0x000000008000808B), SPH_C64(0x800000000000008B),
+	SPH_C64(0x8000000000008089), SPH_C64(0x8000000000008003),
+	SPH_C64(0x8000000000008002), SPH_C64(0x8000000000000080),
+	SPH_C64(0x000000000000800A), SPH_C64(0x800000008000000A),
+	SPH_C64(0x8000000080008081), SPH_C64(0x8000000000008080),
+	SPH_C64(0x0000000080000001), SPH_C64(0x8000000080008008)
 };
 
-uint2 ROTL64_1(const uint2 x, const uint y)
-{
-	return (uint2)((x.x<<y)^(x.y>>(32-y)),(x.y<<y)^(x.x>>(32-y)));
-}
-uint2 ROTL64_2(const uint2 x, const uint y)
-{
-	return (uint2)((x.y<<y)^(x.x>>(32-y)),(x.x<<y)^(x.y>>(32-y)));
-}
+#define DECL64(x)        sph_u64 x
+#define MOV64(d, s)      (d = s)
+#define XOR64(d, a, b)   (d = a ^ b)
+#define AND64(d, a, b)   (d = a & b)
+#define OR64(d, a, b)    (d = a | b)
+#define NOT64(d, s)      (d = SPH_T64(~s))
+#define ROL64(d, v, n)   (d = SPH_ROTL64(v, n))
+#define XOR64_IOTA       XOR64
 
-#define RND(i) \
-do{  \
-		m0 = *s0 ^ *s5 ^ *s10 ^ *s15 ^ *s20 ^ ROTL64_1(*s2 ^ *s7 ^ *s12 ^ *s17 ^ *s22, 1);\
-		m1 = *s1 ^ *s6 ^ *s11 ^ *s16 ^ *s21 ^ ROTL64_1(*s3 ^ *s8 ^ *s13 ^ *s18 ^ *s23, 1);\
-		m2 = *s2 ^ *s7 ^ *s12 ^ *s17 ^ *s22 ^ ROTL64_1(*s4 ^ *s9 ^ *s14 ^ *s19 ^ *s24, 1);\
-		m3 = *s3 ^ *s8 ^ *s13 ^ *s18 ^ *s23 ^ ROTL64_1(*s0 ^ *s5 ^ *s10 ^ *s15 ^ *s20, 1);\
-		m4 = *s4 ^ *s9 ^ *s14 ^ *s19 ^ *s24 ^ ROTL64_1(*s1 ^ *s6 ^ *s11 ^ *s16 ^ *s21, 1);\
-\
-		m5 = *s1^m0;\
-\
-		*s0 ^= m4;\
-		*s1 = ROTL64_2(*s6^m0, 12);\
-		*s6 = ROTL64_1(*s9^m3, 20);\
-		*s9 = ROTL64_2(*s22^m1, 29);\
-		*s22 = ROTL64_2(*s14^m3, 7);\
-		*s14 = ROTL64_1(*s20^m4, 18);\
-		*s20 = ROTL64_2(*s2^m1, 30);\
-		*s2 = ROTL64_2(*s12^m1, 11);\
-		*s12 = ROTL64_1(*s13^m2, 25);\
-		*s13 = ROTL64_1(*s19^m3,  8);\
-		*s19 = ROTL64_2(*s23^m2, 24);\
-		*s23 = ROTL64_2(*s15^m4, 9);\
-		*s15 = ROTL64_1(*s4^m3, 27);\
-		*s4 = ROTL64_1(*s24^m3, 14);\
-		*s24 = ROTL64_1(*s21^m0,  2);\
-		*s21 = ROTL64_2(*s8^m2, 23);\
-		*s8 = ROTL64_2(*s16^m0, 13);\
-		*s16 = ROTL64_2(*s5^m4, 4);\
-		*s5 = ROTL64_1(*s3^m2, 28);\
-		*s3 = ROTL64_1(*s18^m2, 21);\
-		*s18 = ROTL64_1(*s17^m1, 15);\
-		*s17 = ROTL64_1(*s11^m0, 10);\
-		*s11 = ROTL64_1(*s7^m1,  6);\
-		*s7 = ROTL64_1(*s10^m4,  3);\
-		*s10 = ROTL64_1(      m5,  1);\
-		\
-		m5 = *s0; m6 = *s1; *s0 = bitselect(*s0^*s2,*s0,*s1); *s1 = bitselect(*s1^*s3,*s1,*s2); *s2 = bitselect(*s2^*s4,*s2,*s3); *s3 = bitselect(*s3^m5,*s3,*s4); *s4 = bitselect(*s4^m6,*s4,m5);\
-		m5 = *s5; m6 = *s6; *s5 = bitselect(*s5^*s7,*s5,*s6); *s6 = bitselect(*s6^*s8,*s6,*s7); *s7 = bitselect(*s7^*s9,*s7,*s8); *s8 = bitselect(*s8^m5,*s8,*s9); *s9 = bitselect(*s9^m6,*s9,m5);\
-		m5 = *s10; m6 = *s11; *s10 = bitselect(*s10^*s12,*s10,*s11); *s11 = bitselect(*s11^*s13,*s11,*s12); *s12 = bitselect(*s12^*s14,*s12,*s13); *s13 = bitselect(*s13^m5,*s13,*s14); *s14 = bitselect(*s14^m6,*s14,m5);\
-		m5 = *s15; m6 = *s16; *s15 = bitselect(*s15^*s17,*s15,*s16); *s16 = bitselect(*s16^*s18,*s16,*s17); *s17 = bitselect(*s17^*s19,*s17,*s18); *s18 = bitselect(*s18^m5,*s18,*s19); *s19 = bitselect(*s19^m6,*s19,m5);\
-		m5 = *s20; m6 = *s21; *s20 = bitselect(*s20^*s22,*s20,*s21); *s21 = bitselect(*s21^*s23,*s21,*s22); *s22 = bitselect(*s22^*s24,*s22,*s23); *s23 = bitselect(*s23^m5,*s23,*s24); *s24 = bitselect(*s24^m6,*s24,m5);\
-\
-		*s0 ^= keccak_round_constants[i];  \
-}while(0)
+#define TH_ELT(t, c0, c1, c2, c3, c4, d0, d1, d2, d3, d4)   do { \
+		DECL64(tt0); \
+		DECL64(tt1); \
+		DECL64(tt2); \
+		DECL64(tt3); \
+		XOR64(tt0, d0, d1); \
+		XOR64(tt1, d2, d3); \
+		XOR64(tt0, tt0, d4); \
+		XOR64(tt0, tt0, tt1); \
+		ROL64(tt0, tt0, 1); \
+		XOR64(tt2, c0, c1); \
+		XOR64(tt3, c2, c3); \
+		XOR64(tt0, tt0, c4); \
+		XOR64(tt2, tt2, tt3); \
+		XOR64(t, tt0, tt2); \
+	} while (0)
 
-void keccak_block_noabsorb(ARGS_25(uint2* s))
-{
-	uint2 m0,m1,m2,m3,m4,m5,m6;
-#pragma unroll
-	for (uint i = 0; i < 24; ++i)
-		RND(i);
-}
+#define THETA(b00, b01, b02, b03, b04, b10, b11, b12, b13, b14, \
+	b20, b21, b22, b23, b24, b30, b31, b32, b33, b34, \
+	b40, b41, b42, b43, b44) \
+	do { \
+		DECL64(t0); \
+		DECL64(t1); \
+		DECL64(t2); \
+		DECL64(t3); \
+		DECL64(t4); \
+		TH_ELT(t0, b40, b41, b42, b43, b44, b10, b11, b12, b13, b14); \
+		TH_ELT(t1, b00, b01, b02, b03, b04, b20, b21, b22, b23, b24); \
+		TH_ELT(t2, b10, b11, b12, b13, b14, b30, b31, b32, b33, b34); \
+		TH_ELT(t3, b20, b21, b22, b23, b24, b40, b41, b42, b43, b44); \
+		TH_ELT(t4, b30, b31, b32, b33, b34, b00, b01, b02, b03, b04); \
+		XOR64(b00, b00, t0); \
+		XOR64(b01, b01, t0); \
+		XOR64(b02, b02, t0); \
+		XOR64(b03, b03, t0); \
+		XOR64(b04, b04, t0); \
+		XOR64(b10, b10, t1); \
+		XOR64(b11, b11, t1); \
+		XOR64(b12, b12, t1); \
+		XOR64(b13, b13, t1); \
+		XOR64(b14, b14, t1); \
+		XOR64(b20, b20, t2); \
+		XOR64(b21, b21, t2); \
+		XOR64(b22, b22, t2); \
+		XOR64(b23, b23, t2); \
+		XOR64(b24, b24, t2); \
+		XOR64(b30, b30, t3); \
+		XOR64(b31, b31, t3); \
+		XOR64(b32, b32, t3); \
+		XOR64(b33, b33, t3); \
+		XOR64(b34, b34, t3); \
+		XOR64(b40, b40, t4); \
+		XOR64(b41, b41, t4); \
+		XOR64(b42, b42, t4); \
+		XOR64(b43, b43, t4); \
+		XOR64(b44, b44, t4); \
+	} while (0)
 
-__attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
-__kernel void search(
-#ifndef GOFFSET
-	const uint base,
+#define RHO(b00, b01, b02, b03, b04, b10, b11, b12, b13, b14, \
+	b20, b21, b22, b23, b24, b30, b31, b32, b33, b34, \
+	b40, b41, b42, b43, b44) \
+	do { \
+		/* ROL64(b00, b00,  0); */ \
+		ROL64(b01, b01, 36); \
+		ROL64(b02, b02,  3); \
+		ROL64(b03, b03, 41); \
+		ROL64(b04, b04, 18); \
+		ROL64(b10, b10,  1); \
+		ROL64(b11, b11, 44); \
+		ROL64(b12, b12, 10); \
+		ROL64(b13, b13, 45); \
+		ROL64(b14, b14,  2); \
+		ROL64(b20, b20, 62); \
+		ROL64(b21, b21,  6); \
+		ROL64(b22, b22, 43); \
+		ROL64(b23, b23, 15); \
+		ROL64(b24, b24, 61); \
+		ROL64(b30, b30, 28); \
+		ROL64(b31, b31, 55); \
+		ROL64(b32, b32, 25); \
+		ROL64(b33, b33, 21); \
+		ROL64(b34, b34, 56); \
+		ROL64(b40, b40, 27); \
+		ROL64(b41, b41, 20); \
+		ROL64(b42, b42, 39); \
+		ROL64(b43, b43,  8); \
+		ROL64(b44, b44, 14); \
+	} while (0)
+
+/*
+ * The KHI macro integrates the "lane complement" optimization. On input,
+ * some words are complemented:
+ *    a00 a01 a02 a04 a13 a20 a21 a22 a30 a33 a34 a43
+ * On output, the following words are complemented:
+ *    a04 a10 a20 a22 a23 a31
+ *
+ * The (implicit) permutation and the theta expansion will bring back
+ * the input mask for the next round.
+ */
+
+#define KHI_XO(d, a, b, c)   do { \
+		DECL64(kt); \
+		OR64(kt, b, c); \
+		XOR64(d, a, kt); \
+	} while (0)
+
+#define KHI_XA(d, a, b, c)   do { \
+		DECL64(kt); \
+		AND64(kt, b, c); \
+		XOR64(d, a, kt); \
+	} while (0)
+
+#define KHI(b00, b01, b02, b03, b04, b10, b11, b12, b13, b14, \
+	b20, b21, b22, b23, b24, b30, b31, b32, b33, b34, \
+	b40, b41, b42, b43, b44) \
+	do { \
+		DECL64(c0); \
+		DECL64(c1); \
+		DECL64(c2); \
+		DECL64(c3); \
+		DECL64(c4); \
+		DECL64(bnn); \
+		NOT64(bnn, b20); \
+		KHI_XO(c0, b00, b10, b20); \
+		KHI_XO(c1, b10, bnn, b30); \
+		KHI_XA(c2, b20, b30, b40); \
+		KHI_XO(c3, b30, b40, b00); \
+		KHI_XA(c4, b40, b00, b10); \
+		MOV64(b00, c0); \
+		MOV64(b10, c1); \
+		MOV64(b20, c2); \
+		MOV64(b30, c3); \
+		MOV64(b40, c4); \
+		NOT64(bnn, b41); \
+		KHI_XO(c0, b01, b11, b21); \
+		KHI_XA(c1, b11, b21, b31); \
+		KHI_XO(c2, b21, b31, bnn); \
+		KHI_XO(c3, b31, b41, b01); \
+		KHI_XA(c4, b41, b01, b11); \
+		MOV64(b01, c0); \
+		MOV64(b11, c1); \
+		MOV64(b21, c2); \
+		MOV64(b31, c3); \
+		MOV64(b41, c4); \
+		NOT64(bnn, b32); \
+		KHI_XO(c0, b02, b12, b22); \
+		KHI_XA(c1, b12, b22, b32); \
+		KHI_XA(c2, b22, bnn, b42); \
+		KHI_XO(c3, bnn, b42, b02); \
+		KHI_XA(c4, b42, b02, b12); \
+		MOV64(b02, c0); \
+		MOV64(b12, c1); \
+		MOV64(b22, c2); \
+		MOV64(b32, c3); \
+		MOV64(b42, c4); \
+		NOT64(bnn, b33); \
+		KHI_XA(c0, b03, b13, b23); \
+		KHI_XO(c1, b13, b23, b33); \
+		KHI_XO(c2, b23, bnn, b43); \
+		KHI_XA(c3, bnn, b43, b03); \
+		KHI_XO(c4, b43, b03, b13); \
+		MOV64(b03, c0); \
+		MOV64(b13, c1); \
+		MOV64(b23, c2); \
+		MOV64(b33, c3); \
+		MOV64(b43, c4); \
+		NOT64(bnn, b14); \
+		KHI_XA(c0, b04, bnn, b24); \
+		KHI_XO(c1, bnn, b24, b34); \
+		KHI_XA(c2, b24, b34, b44); \
+		KHI_XO(c3, b34, b44, b04); \
+		KHI_XA(c4, b44, b04, b14); \
+		MOV64(b04, c0); \
+		MOV64(b14, c1); \
+		MOV64(b24, c2); \
+		MOV64(b34, c3); \
+		MOV64(b44, c4); \
+	} while (0)
+
+#define IOTA(r)   XOR64_IOTA(a00, a00, r)
+
+#define P0    a00, a01, a02, a03, a04, a10, a11, a12, a13, a14, a20, a21, \
+              a22, a23, a24, a30, a31, a32, a33, a34, a40, a41, a42, a43, a44
+#define P1    a00, a30, a10, a40, a20, a11, a41, a21, a01, a31, a22, a02, \
+              a32, a12, a42, a33, a13, a43, a23, a03, a44, a24, a04, a34, a14
+#define P2    a00, a33, a11, a44, a22, a41, a24, a02, a30, a13, a32, a10, \
+              a43, a21, a04, a23, a01, a34, a12, a40, a14, a42, a20, a03, a31
+#define P3    a00, a23, a41, a14, a32, a24, a42, a10, a33, a01, a43, a11, \
+              a34, a02, a20, a12, a30, a03, a21, a44, a31, a04, a22, a40, a13
+#define P4    a00, a12, a24, a31, a43, a42, a04, a11, a23, a30, a34, a41, \
+              a03, a10, a22, a21, a33, a40, a02, a14, a13, a20, a32, a44, a01
+#define P5    a00, a21, a42, a13, a34, a04, a20, a41, a12, a33, a03, a24, \
+              a40, a11, a32, a02, a23, a44, a10, a31, a01, a22, a43, a14, a30
+#define P6    a00, a02, a04, a01, a03, a20, a22, a24, a21, a23, a40, a42, \
+              a44, a41, a43, a10, a12, a14, a11, a13, a30, a32, a34, a31, a33
+#define P7    a00, a10, a20, a30, a40, a22, a32, a42, a02, a12, a44, a04, \
+              a14, a24, a34, a11, a21, a31, a41, a01, a33, a43, a03, a13, a23
+#define P8    a00, a11, a22, a33, a44, a32, a43, a04, a10, a21, a14, a20, \
+              a31, a42, a03, a41, a02, a13, a24, a30, a23, a34, a40, a01, a12
+#define P9    a00, a41, a32, a23, a14, a43, a34, a20, a11, a02, a31, a22, \
+              a13, a04, a40, a24, a10, a01, a42, a33, a12, a03, a44, a30, a21
+#define P10   a00, a24, a43, a12, a31, a34, a03, a22, a41, a10, a13, a32, \
+              a01, a20, a44, a42, a11, a30, a04, a23, a21, a40, a14, a33, a02
+#define P11   a00, a42, a34, a21, a13, a03, a40, a32, a24, a11, a01, a43, \
+              a30, a22, a14, a04, a41, a33, a20, a12, a02, a44, a31, a23, a10
+#define P12   a00, a04, a03, a02, a01, a40, a44, a43, a42, a41, a30, a34, \
+              a33, a32, a31, a20, a24, a23, a22, a21, a10, a14, a13, a12, a11
+#define P13   a00, a20, a40, a10, a30, a44, a14, a34, a04, a24, a33, a03, \
+              a23, a43, a13, a22, a42, a12, a32, a02, a11, a31, a01, a21, a41
+#define P14   a00, a22, a44, a11, a33, a14, a31, a03, a20, a42, a23, a40, \
+              a12, a34, a01, a32, a04, a21, a43, a10, a41, a13, a30, a02, a24
+#define P15   a00, a32, a14, a41, a23, a31, a13, a40, a22, a04, a12, a44, \
+              a21, a03, a30, a43, a20, a02, a34, a11, a24, a01, a33, a10, a42
+#define P16   a00, a43, a31, a24, a12, a13, a01, a44, a32, a20, a21, a14, \
+              a02, a40, a33, a34, a22, a10, a03, a41, a42, a30, a23, a11, a04
+#define P17   a00, a34, a13, a42, a21, a01, a30, a14, a43, a22, a02, a31, \
+              a10, a44, a23, a03, a32, a11, a40, a24, a04, a33, a12, a41, a20
+#define P18   a00, a03, a01, a04, a02, a30, a33, a31, a34, a32, a10, a13, \
+              a11, a14, a12, a40, a43, a41, a44, a42, a20, a23, a21, a24, a22
+#define P19   a00, a40, a30, a20, a10, a33, a23, a13, a03, a43, a11, a01, \
+              a41, a31, a21, a44, a34, a24, a14, a04, a22, a12, a02, a42, a32
+#define P20   a00, a44, a33, a22, a11, a23, a12, a01, a40, a34, a41, a30, \
+              a24, a13, a02, a14, a03, a42, a31, a20, a32, a21, a10, a04, a43
+#define P21   a00, a14, a23, a32, a41, a12, a21, a30, a44, a03, a24, a33, \
+              a42, a01, a10, a31, a40, a04, a13, a22, a43, a02, a11, a20, a34
+#define P22   a00, a31, a12, a43, a24, a21, a02, a33, a14, a40, a42, a23, \
+              a04, a30, a11, a13, a44, a20, a01, a32, a34, a10, a41, a22, a03
+#define P23   a00, a13, a21, a34, a42, a02, a10, a23, a31, a44, a04, a12, \
+              a20, a33, a41, a01, a14, a22, a30, a43, a03, a11, a24, a32, a40
+
+#define P1_TO_P0   do { \
+		DECL64(t); \
+		MOV64(t, a01); \
+		MOV64(a01, a30); \
+		MOV64(a30, a33); \
+		MOV64(a33, a23); \
+		MOV64(a23, a12); \
+		MOV64(a12, a21); \
+		MOV64(a21, a02); \
+		MOV64(a02, a10); \
+		MOV64(a10, a11); \
+		MOV64(a11, a41); \
+		MOV64(a41, a24); \
+		MOV64(a24, a42); \
+		MOV64(a42, a04); \
+		MOV64(a04, a20); \
+		MOV64(a20, a22); \
+		MOV64(a22, a32); \
+		MOV64(a32, a43); \
+		MOV64(a43, a34); \
+		MOV64(a34, a03); \
+		MOV64(a03, a40); \
+		MOV64(a40, a44); \
+		MOV64(a44, a14); \
+		MOV64(a14, a31); \
+		MOV64(a31, a13); \
+		MOV64(a13, t); \
+	} while (0)
+
+#define P2_TO_P0   do { \
+		DECL64(t); \
+		MOV64(t, a01); \
+		MOV64(a01, a33); \
+		MOV64(a33, a12); \
+		MOV64(a12, a02); \
+		MOV64(a02, a11); \
+		MOV64(a11, a24); \
+		MOV64(a24, a04); \
+		MOV64(a04, a22); \
+		MOV64(a22, a43); \
+		MOV64(a43, a03); \
+		MOV64(a03, a44); \
+		MOV64(a44, a31); \
+		MOV64(a31, t); \
+		MOV64(t, a10); \
+		MOV64(a10, a41); \
+		MOV64(a41, a42); \
+		MOV64(a42, a20); \
+		MOV64(a20, a32); \
+		MOV64(a32, a34); \
+		MOV64(a34, a40); \
+		MOV64(a40, a14); \
+		MOV64(a14, a13); \
+		MOV64(a13, a30); \
+		MOV64(a30, a23); \
+		MOV64(a23, a21); \
+		MOV64(a21, t); \
+	} while (0)
+
+#define P4_TO_P0   do { \
+		DECL64(t); \
+		MOV64(t, a01); \
+		MOV64(a01, a12); \
+		MOV64(a12, a11); \
+		MOV64(a11, a04); \
+		MOV64(a04, a43); \
+		MOV64(a43, a44); \
+		MOV64(a44, t); \
+		MOV64(t, a02); \
+		MOV64(a02, a24); \
+		MOV64(a24, a22); \
+		MOV64(a22, a03); \
+		MOV64(a03, a31); \
+		MOV64(a31, a33); \
+		MOV64(a33, t); \
+		MOV64(t, a10); \
+		MOV64(a10, a42); \
+		MOV64(a42, a32); \
+		MOV64(a32, a40); \
+		MOV64(a40, a13); \
+		MOV64(a13, a23); \
+		MOV64(a23, t); \
+		MOV64(t, a14); \
+		MOV64(a14, a30); \
+		MOV64(a30, a21); \
+		MOV64(a21, a41); \
+		MOV64(a41, a20); \
+		MOV64(a20, a34); \
+		MOV64(a34, t); \
+	} while (0)
+
+#define P6_TO_P0   do { \
+		DECL64(t); \
+		MOV64(t, a01); \
+		MOV64(a01, a02); \
+		MOV64(a02, a04); \
+		MOV64(a04, a03); \
+		MOV64(a03, t); \
+		MOV64(t, a10); \
+		MOV64(a10, a20); \
+		MOV64(a20, a40); \
+		MOV64(a40, a30); \
+		MOV64(a30, t); \
+		MOV64(t, a11); \
+		MOV64(a11, a22); \
+		MOV64(a22, a44); \
+		MOV64(a44, a33); \
+		MOV64(a33, t); \
+		MOV64(t, a12); \
+		MOV64(a12, a24); \
+		MOV64(a24, a43); \
+		MOV64(a43, a31); \
+		MOV64(a31, t); \
+		MOV64(t, a13); \
+		MOV64(a13, a21); \
+		MOV64(a21, a42); \
+		MOV64(a42, a34); \
+		MOV64(a34, t); \
+		MOV64(t, a14); \
+		MOV64(a14, a23); \
+		MOV64(a23, a41); \
+		MOV64(a41, a32); \
+		MOV64(a32, t); \
+	} while (0)
+
+#define P8_TO_P0   do { \
+		DECL64(t); \
+		MOV64(t, a01); \
+		MOV64(a01, a11); \
+		MOV64(a11, a43); \
+		MOV64(a43, t); \
+		MOV64(t, a02); \
+		MOV64(a02, a22); \
+		MOV64(a22, a31); \
+		MOV64(a31, t); \
+		MOV64(t, a03); \
+		MOV64(a03, a33); \
+		MOV64(a33, a24); \
+		MOV64(a24, t); \
+		MOV64(t, a04); \
+		MOV64(a04, a44); \
+		MOV64(a44, a12); \
+		MOV64(a12, t); \
+		MOV64(t, a10); \
+		MOV64(a10, a32); \
+		MOV64(a32, a13); \
+		MOV64(a13, t); \
+		MOV64(t, a14); \
+		MOV64(a14, a21); \
+		MOV64(a21, a20); \
+		MOV64(a20, t); \
+		MOV64(t, a23); \
+		MOV64(a23, a42); \
+		MOV64(a42, a40); \
+		MOV64(a40, t); \
+		MOV64(t, a30); \
+		MOV64(a30, a41); \
+		MOV64(a41, a34); \
+		MOV64(a34, t); \
+	} while (0)
+
+#define P12_TO_P0   do { \
+		DECL64(t); \
+		MOV64(t, a01); \
+		MOV64(a01, a04); \
+		MOV64(a04, t); \
+		MOV64(t, a02); \
+		MOV64(a02, a03); \
+		MOV64(a03, t); \
+		MOV64(t, a10); \
+		MOV64(a10, a40); \
+		MOV64(a40, t); \
+		MOV64(t, a11); \
+		MOV64(a11, a44); \
+		MOV64(a44, t); \
+		MOV64(t, a12); \
+		MOV64(a12, a43); \
+		MOV64(a43, t); \
+		MOV64(t, a13); \
+		MOV64(a13, a42); \
+		MOV64(a42, t); \
+		MOV64(t, a14); \
+		MOV64(a14, a41); \
+		MOV64(a41, t); \
+		MOV64(t, a20); \
+		MOV64(a20, a30); \
+		MOV64(a30, t); \
+		MOV64(t, a21); \
+		MOV64(a21, a34); \
+		MOV64(a34, t); \
+		MOV64(t, a22); \
+		MOV64(a22, a33); \
+		MOV64(a33, t); \
+		MOV64(t, a23); \
+		MOV64(a23, a32); \
+		MOV64(a32, t); \
+		MOV64(t, a24); \
+		MOV64(a24, a31); \
+		MOV64(a31, t); \
+	} while (0)
+
+#define LPAR   (
+#define RPAR   )
+
+#define KF_ELT(r, s, k)   do { \
+		THETA LPAR P ## r RPAR; \
+		RHO LPAR P ## r RPAR; \
+		KHI LPAR P ## s RPAR; \
+		IOTA(k); \
+	} while (0)
+
+#define DO(x)   x
+
+#define KECCAK_F_1600   DO(KECCAK_F_1600_)
+
+#if SPH_KECCAK_UNROLL == 1
+
+#define KECCAK_F_1600_   do { \
+		int j; \
+		for (j = 0; j < 24; j ++) { \
+			KF_ELT( 0,  1, RC[j + 0]); \
+			P1_TO_P0; \
+		} \
+	} while (0)
+
+#elif SPH_KECCAK_UNROLL == 2
+
+#define KECCAK_F_1600_   do { \
+		int j; \
+		for (j = 0; j < 24; j += 2) { \
+			KF_ELT( 0,  1, RC[j + 0]); \
+			KF_ELT( 1,  2, RC[j + 1]); \
+			P2_TO_P0; \
+		} \
+	} while (0)
+
+#elif SPH_KECCAK_UNROLL == 4
+
+#define KECCAK_F_1600_   do { \
+		int j; \
+		for (j = 0; j < 24; j += 4) { \
+			KF_ELT( 0,  1, RC[j + 0]); \
+			KF_ELT( 1,  2, RC[j + 1]); \
+			KF_ELT( 2,  3, RC[j + 2]); \
+			KF_ELT( 3,  4, RC[j + 3]); \
+			P4_TO_P0; \
+		} \
+	} while (0)
+
+#elif SPH_KECCAK_UNROLL == 6
+
+#define KECCAK_F_1600_   do { \
+		int j; \
+		for (j = 0; j < 24; j += 6) { \
+			KF_ELT( 0,  1, RC[j + 0]); \
+			KF_ELT( 1,  2, RC[j + 1]); \
+			KF_ELT( 2,  3, RC[j + 2]); \
+			KF_ELT( 3,  4, RC[j + 3]); \
+			KF_ELT( 4,  5, RC[j + 4]); \
+			KF_ELT( 5,  6, RC[j + 5]); \
+			P6_TO_P0; \
+		} \
+	} while (0)
+
+#elif SPH_KECCAK_UNROLL == 8
+
+#define KECCAK_F_1600_   do { \
+		int j; \
+		for (j = 0; j < 24; j += 8) { \
+			KF_ELT( 0,  1, RC[j + 0]); \
+			KF_ELT( 1,  2, RC[j + 1]); \
+			KF_ELT( 2,  3, RC[j + 2]); \
+			KF_ELT( 3,  4, RC[j + 3]); \
+			KF_ELT( 4,  5, RC[j + 4]); \
+			KF_ELT( 5,  6, RC[j + 5]); \
+			KF_ELT( 6,  7, RC[j + 6]); \
+			KF_ELT( 7,  8, RC[j + 7]); \
+			P8_TO_P0; \
+		} \
+	} while (0)
+
+#elif SPH_KECCAK_UNROLL == 12
+
+#define KECCAK_F_1600_   do { \
+		int j; \
+		for (j = 0; j < 24; j += 12) { \
+			KF_ELT( 0,  1, RC[j +  0]); \
+			KF_ELT( 1,  2, RC[j +  1]); \
+			KF_ELT( 2,  3, RC[j +  2]); \
+			KF_ELT( 3,  4, RC[j +  3]); \
+			KF_ELT( 4,  5, RC[j +  4]); \
+			KF_ELT( 5,  6, RC[j +  5]); \
+			KF_ELT( 6,  7, RC[j +  6]); \
+			KF_ELT( 7,  8, RC[j +  7]); \
+			KF_ELT( 8,  9, RC[j +  8]); \
+			KF_ELT( 9, 10, RC[j +  9]); \
+			KF_ELT(10, 11, RC[j + 10]); \
+			KF_ELT(11, 12, RC[j + 11]); \
+			P12_TO_P0; \
+		} \
+	} while (0)
+
+#elif SPH_KECCAK_UNROLL == 0
+
+#define KECCAK_F_1600_   do { \
+		KF_ELT( 0,  1, RC[ 0]); \
+		KF_ELT( 1,  2, RC[ 1]); \
+		KF_ELT( 2,  3, RC[ 2]); \
+		KF_ELT( 3,  4, RC[ 3]); \
+		KF_ELT( 4,  5, RC[ 4]); \
+		KF_ELT( 5,  6, RC[ 5]); \
+		KF_ELT( 6,  7, RC[ 6]); \
+		KF_ELT( 7,  8, RC[ 7]); \
+		KF_ELT( 8,  9, RC[ 8]); \
+		KF_ELT( 9, 10, RC[ 9]); \
+		KF_ELT(10, 11, RC[10]); \
+		KF_ELT(11, 12, RC[11]); \
+		KF_ELT(12, 13, RC[12]); \
+		KF_ELT(13, 14, RC[13]); \
+		KF_ELT(14, 15, RC[14]); \
+		KF_ELT(15, 16, RC[15]); \
+		KF_ELT(16, 17, RC[16]); \
+		KF_ELT(17, 18, RC[17]); \
+		KF_ELT(18, 19, RC[18]); \
+		KF_ELT(19, 20, RC[19]); \
+		KF_ELT(20, 21, RC[20]); \
+		KF_ELT(21, 22, RC[21]); \
+		KF_ELT(22, 23, RC[22]); \
+		KF_ELT(23,  0, RC[23]); \
+	} while (0)
+
+#else
+
+#error Unimplemented unroll count for Keccak.
+
 #endif
-	__global const uint2*restrict in, __global uint*restrict output)
+
+
+
+void keccak(hash_t* hash)
 {
-#ifdef GOFFSET
-	const uint base = 0;
-#endif
-	uint2 ARGS_25(state);
-	
-	state0 = in[0];
-	state1 = in[1];
-	state2 = in[2];
-	state3 = in[3];
-	state4 = in[4];
-	state5 = in[5];
-	state6 = in[6];
-	state7 = in[7];
-	state8 = in[8];
-	state9 = (uint2)(in[9].x, base + get_global_id(0));
-	state10 = (uint2)(1,0);
-	state11 = 0;
-	state12 = 0;
-	state13 = 0;
-	state14 = 0;
-	state15 = 0;
-	state16 = (uint2)(0,0x80000000U);
-	state17 = 0;
-	state18 = 0;
-	state19 = 0;
-	state20 = 0;
-	state21 = 0;
-	state22 = 0;
-	state23 = 0;
-	state24 = 0;
-	
-	keccak_block_noabsorb(ARGS_25(&state));
-	
-#define FOUND (0x0F)
-#define SETFOUND(Xnonce) output[output[FOUND]++] = Xnonce
-	
-	if ((state3.y & 0xFFFFFFF0U) == 0)
-	{
-		SETFOUND(base + get_global_id(0));
+	//uint gid = get_global_id(0);
+	//__global hash_t *hash = &(hashes[gid-get_global_offset(0)]);
+
+	// keccak
+
+	sph_u64 a00 = 0, a01 = 0, a02 = 0, a03 = 0, a04 = 0;
+	sph_u64 a10 = 0, a11 = 0, a12 = 0, a13 = 0, a14 = 0;
+	sph_u64 a20 = 0, a21 = 0, a22 = 0, a23 = 0, a24 = 0;
+	sph_u64 a30 = 0, a31 = 0, a32 = 0, a33 = 0, a34 = 0;
+	sph_u64 a40 = 0, a41 = 0, a42 = 0, a43 = 0, a44 = 0;
+
+	a10 = SPH_C64(0xFFFFFFFFFFFFFFFF);
+	a20 = SPH_C64(0xFFFFFFFFFFFFFFFF);
+	a31 = SPH_C64(0xFFFFFFFFFFFFFFFF);
+	a22 = SPH_C64(0xFFFFFFFFFFFFFFFF);
+	a23 = SPH_C64(0xFFFFFFFFFFFFFFFF);
+	a04 = SPH_C64(0xFFFFFFFFFFFFFFFF);
+
+	a00 ^= SWAP8(hash->h8[0]);
+	a10 ^= SWAP8(hash->h8[1]);
+	a20 ^= SWAP8(hash->h8[2]);
+	a30 ^= SWAP8(hash->h8[3]);
+	a40 ^= SWAP8(hash->h8[4]);
+	a01 ^= SWAP8(hash->h8[5]);
+	a11 ^= SWAP8(hash->h8[6]);
+	a21 ^= SWAP8(hash->h8[7]);
+	a31 ^= 0x8000000000000001;
+	KECCAK_F_1600;
+	// Finalize the "lane complement"
+	a10 = ~a10;
+	a20 = ~a20;
+
+	hash->h8[0] = SWAP8(a00);
+	hash->h8[1] = SWAP8(a10);
+	hash->h8[2] = SWAP8(a20);
+	hash->h8[3] = SWAP8(a30);
+	hash->h8[4] = SWAP8(a40);
+	hash->h8[5] = SWAP8(a01);
+	hash->h8[6] = SWAP8(a11);
+	hash->h8[7] = SWAP8(a21);
+
+	barrier(CLK_GLOBAL_MEM_FENCE);
+}
+
+
+__kernel void scanHash_pre(__global char* input, __global char* output, const uint nonceStart)
+{
+	uint gid = get_global_id(0);
+	//todo : assemble hash data inside kernel with nonce
+	hash_t hashdata;
+	for (int i = 0; i < 64; i++) {
+		hashdata.h1[i] = input[i];
 	}
+	hashdata.h4[14] = hashdata.h4[14] ^ hashdata.h4[15];
+	hashdata.h4[15] = gid + nonceStart;
+
+	keccak(&hashdata);
+	for (int i = 0; i < 64; i++) {
+		output[64*gid+i] = hashdata.h1[i];
+	}
+	barrier(CLK_GLOBAL_MEM_FENCE);
+}
+__kernel void scanHash_post(__global char* input, __global char* output,__global uint* goodNonce, const ulong target)
+{
+	uint gid = get_global_id(0);
+	
+	//todo : assemble hash data inside kernel with nonce
+	hash_t hashdata;
+	for (int i = 0; i < 64; i++) {
+		hashdata.h1[i] = input[64*gid+i];
+	}
+	keccak(&hashdata);
+
+	ulong outcome = hashdata.h8[3];
+	bool result = (outcome <= target);
+
+	if (result) {
+		//printf("gid %d hit target!\n", gid);
+		goodNonce[0] = gid;
+		for (int i = 0; i < 64; i++) {
+		output[i] = hashdata.h1[i];
+	}
+		//[atomic_inc(output + 0xFF)] = SWAP4(gid);
+	}
+	barrier(CLK_GLOBAL_MEM_FENCE);
+}
+
+
+__kernel void hashTest(__global char* in, __global char* out)
+{
+	hash_t input;
+	for (int i = 0; i < 64; i++) {
+		input.h1[i] = in[i];
+	}
+
+	keccak(&input);
+
+	for (int i = 0; i < 64; i++) {
+		out[i] = input.h1[i];
+	}
+}
+
+
+__kernel void helloworld(__global char* in, __global char* out)
+{
+	int num = get_global_id(0);
+	out[num] = in[num] + 1;
 }

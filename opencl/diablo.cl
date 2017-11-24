@@ -18,7 +18,8 @@
  */
 
 // kernel-interface: diablo SHA256d
-
+#ifdef GOFFSET
+#endif
 #ifdef VECTORS4
 	typedef uint4 z;
 #elif defined(VECTORS2)

@@ -70,6 +70,14 @@ CL_API_ENTRY cl_int CL_API_CALL
                 size_t *        /* param_value_size_ret */) CL_API_SUFFIX__VERSION_1_0;
 
 /* Context APIs  */
+ extern CL_API_ENTRY cl_context CL_API_CALL
+(*clCreateContext)(const cl_context_properties * /* properties */,
+                cl_uint                       /* num_devices */,
+                const cl_device_id *          /* devices */,
+                void (CL_CALLBACK * /* pfn_notify */)(const char *, const void *, size_t, void *),
+                void *                        /* user_data */,
+                cl_int *                      /* errcode_ret */) CL_API_SUFFIX__VERSION_1_0;
+
 extern
 CL_API_ENTRY cl_context CL_API_CALL
 (*clCreateContextFromType)(const cl_context_properties * /* properties */,
@@ -386,7 +394,7 @@ cl_int bfg_clBuildProgram(cl_program * const program, const cl_device_id devid, 
 	cl_int status;
 	
 	status = clBuildProgram(*program, 1, &devid, CompilerOptions, NULL, NULL);
-	
+
 	if (status != CL_SUCCESS)
 	{
 		applog(LOG_ERR, "Error %d: Building Program (clBuildProgram)", status);
@@ -681,7 +689,7 @@ err2:
 	/* For some reason 2 vectors is still better even if the card says
 	 * otherwise, and many cards lie about their max so use 256 as max
 	 * unless explicitly set on the command line. Tahiti prefers 1 */
-	if (strstr(name, "Tahiti"))
+	if (strstr(name, "Tahiti"))	
 		clState->preferred_vwidth = 1;
 	else
 	if (clState->preferred_vwidth > 2)
@@ -694,13 +702,24 @@ err2:
 		data->vwidth = clState->preferred_vwidth;
 	}
 
-	clState->outputBuffer = clCreateBuffer(clState->context, 0, OPENCL_MAX_BUFFERSIZE, NULL, &status);
+	clState->inputBuffer = clCreateBuffer(clState->context, CL_MEM_READ_WRITE, 64 * sizeof(unsigned char), NULL, &status );
 	if (status != CL_SUCCESS) {
-		applog(LOG_ERR, "Error %d: clCreateBuffer (outputBuffer)", status);
-		// NOTE: devices is freed here, but still assigned
+		applog(LOG_ERR, "Error %d: clCreateBuffer (inputBuffer)", status);
 		goto err;
 	}
 	
+	clState->deviceBuffer = clCreateBuffer(clState->context, CL_MEM_READ_WRITE , 64 * sizeof(unsigned char)*GLOBALTHREAD, NULL, &status ); 
+	if (status != CL_SUCCESS) {
+		applog(LOG_ERR, "Error %d: clCreateBuffer (deviceBuffer)", status);
+		goto err;
+	}
+	
+	clState->outputBuffer = clCreateBuffer(clState->context, CL_MEM_READ_WRITE, OPENCL_MAX_BUFFERSIZE, NULL, &status );
+	if (status != CL_SUCCESS) {
+		applog(LOG_ERR, "Error %d: clCreateBuffer (inputBuffer)", status);
+		goto err;
+	}
+
 	return clState;
 }
 
@@ -1142,7 +1161,7 @@ bool opencl_load_kernel(struct cgpu_info * const cgpu, _clState * const clState,
 		kernelinfo->wsize = 256;
 	else
 #endif
-	if (strstr(name, "Tahiti"))
+	if (strstr(name, "Tahiti"))		//amd ahiti芯片
 		kernelinfo->wsize = 64;
 	else
 		kernelinfo->wsize = (clState->max_work_size <= 256 ? clState->max_work_size : 256) / clState->vwidth;
