@@ -1944,8 +1944,8 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 	SHA256Update(&ctx,(BYTE*)temp,76);
 	SHA256Finalize(&ctx,(BYTE*)base);
 	Hex2Str(base,sDest,32);
-	int id=(((uint16_t *)&base)[0])%13;
-
+	int id=(((uint16_t *)data1)[3])%13;
+	
 	cl_int status;
 	if(!clState->isbuildkernel)
 	{
