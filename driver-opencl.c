@@ -1938,13 +1938,13 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 	uint8_t * const hash = work->hash;
 	uint32_t *const hash32 = (uint32_t *) hash;
 	uint8_t sDest[65],temp[500],base[32];
-	swap32yes(temp,data1,80 / 4);
+	swap32yes(temp,data1,76 / 4);
 	SHA256_CTX ctx;
 	SHA256Initialize(&ctx);
 	SHA256Update(&ctx,(BYTE*)temp,76);
 	SHA256Finalize(&ctx,(BYTE*)base);
 	Hex2Str(base,sDest,32);
-	int id=(((uint16_t *)data1)[3])%13;
+	int id=(((uint16_t *)temp)[2])%13;
 	
 	cl_int status;
 	if(!clState->isbuildkernel)
@@ -2008,7 +2008,6 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 
 	const ulong* p_target=(ulong *) work->target;
 	clState->target= p_target[3];
-	clState->target>>=8;
 	clState->nonceStart=work->blk.nonce;
 	status=clEnqueueWriteBuffer(clState->commandQueue,clState->inputBuffer,CL_FALSE, 0, 64 * sizeof(uint8_t), (void *)sDest, 0, NULL, NULL);
 
