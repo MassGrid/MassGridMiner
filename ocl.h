@@ -36,7 +36,7 @@ struct _clState {
 	cl_program program[14];
 	cl_kernel kernel[2];
 	uint nonceStart;
-	ulong target;
+	cl_ulong target;
 #ifdef MAX_CLBUFFER0_SZ
 	cl_mem CLbuffer0;
 #endif

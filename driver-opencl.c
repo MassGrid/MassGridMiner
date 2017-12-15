@@ -2006,7 +2006,7 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 	if (hashes > gpu->max_hashes)
 		gpu->max_hashes = hashes;
 
-	const ulong* p_target=(ulong *) work->target;
+	const cl_ulong* p_target=(cl_ulong *) work->target;
 	clState->target= p_target[3];
 	clState->nonceStart=work->blk.nonce;
 	status=clEnqueueWriteBuffer(clState->commandQueue,clState->inputBuffer,CL_FALSE, 0, 64 * sizeof(uint8_t), (void *)sDest, 0, NULL, NULL);
