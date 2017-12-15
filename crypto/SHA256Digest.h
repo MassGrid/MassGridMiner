@@ -9,12 +9,12 @@
 #define CHUNK_SIZE 64
 
 typedef unsigned char BYTE;
-typedef unsigned int WORD; // actually not sure if it is able to deal with 64-bit (WORD?), but it works at the moment
+typedef unsigned int WORD_w; // actually not sure if it is able to deal with 64-bit (WORD_w?), but it works at the moment
 
 typedef struct {
 	BYTE data[64];
-	WORD dataLength;
-	WORD hash[8];
+	WORD_w dataLength;
+	WORD_w hash[8];
 	unsigned long long totalLength; //size of message in bit, up to 64-bits
 } SHA256_CTX;
 

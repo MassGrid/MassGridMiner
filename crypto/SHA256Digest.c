@@ -4,7 +4,7 @@
  * Represent the first 32 bits of the fractional parts of the
  * cube roots of the first 64 prime numbers
  */
-static const WORD k[] = {
+static const WORD_w k[] = {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
     0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
     0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
@@ -19,7 +19,7 @@ static const WORD k[] = {
  * The first 32 bits of the fractional parts of the square roots
  * of the first eight prime numbers
  */
-static const WORD h[] = { 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19 };
+static const WORD_w h[] = { 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19 };
 
 /* SHA-256 Functions
  * Using macro:
@@ -34,7 +34,7 @@ static const WORD h[] = { 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e
 
 
 static void processChunk(SHA256_CTX *ctx) {
-	WORD a, b, c, d, e, f, g, h, w[64], t1, t2;
+	WORD_w a, b, c, d, e, f, g, h, w[64], t1, t2;
 	
 	// copy chunk into the first 16 words of the message schedule array
 	for (int i=0, j=0; i<16; i++, j+=4)
