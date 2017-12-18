@@ -1906,7 +1906,7 @@ int buildKernel(int thr_id,int algorithmId) {
 			applog(LOG_DEBUG,"Build Log:\n%s\n", buffer);
 			return temp;
 		}
-	
+	free(source);
 	//Step 8: Create kernel object 
 	applog(LOG_DEBUG,"done\n");
 	
@@ -1952,11 +1952,13 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 		for(int i=0; i<14;++i)
 		buildKernel(thr_id,i);
 		clState->isbuildkernel=!clState->isbuildkernel;
+		clState->kernel[1] = clCreateKernel(clState->program[13], "scanHash_post",&status);
+		status = clSetKernelArg(clState->kernel[1], 0, sizeof(cl_mem), &clState->deviceBuffer);
+		status = clSetKernelArg(clState->kernel[1], 1, sizeof(cl_mem), &clState->outputBuffer);				
 	}
 
 	clState->kernel[0] =clCreateKernel(clState->program[id], "scanHash_pre", &status);
-	clState->kernel[1] = clCreateKernel(clState->program[13], "scanHash_post",&status);
-	const struct mining_algorithm * const malgo = work_mining_algorithm(work);
+		const struct mining_algorithm * const malgo = work_mining_algorithm(work);
 	size_t globalThreads[1];
 	size_t localThreads[1] = { 0 };
 	int64_t hashes;
@@ -2015,22 +2017,21 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 	status = clSetKernelArg(clState->kernel[0], 0, sizeof(cl_mem), &clState->inputBuffer);
 	status = clSetKernelArg(clState->kernel[0], 1, sizeof(cl_mem), &clState->deviceBuffer);
 	status = clSetKernelArg(clState->kernel[0], 2, sizeof(cl_uint), &clState->nonceStart);
-	status = clSetKernelArg(clState->kernel[1], 0, sizeof(cl_mem), &clState->deviceBuffer);
-	status = clSetKernelArg(clState->kernel[1], 1, sizeof(cl_mem), &clState->outputBuffer);
 	status = clSetKernelArg(clState->kernel[1], 2, sizeof(cl_ulong), &clState->target);
-
+	
 
 	if (unlikely(status != CL_SUCCESS)) {
 		applog(LOG_ERR, "Error: clSetKernelArg of all params failed.");
 		return -1;
 	}
-
+	for (int i=0;i<80;++i){
 		status = clEnqueueNDRangeKernel(clState->commandQueue, clState->kernel[0], 1, 0, globalThreads, 0, 0, NULL, NULL);
 
 		if (unlikely(status != CL_SUCCESS)) {
-			applog(LOG_ERR, "Error %d: Enqueueing kernel onto command queue. (clEnqueueNDRangeKernel)0", status);
+			applog(LOG_ERR, "Error %d: Enqueueing kernel onto command queue. (clEnqueueNDRangeKernel)", status);
 			return -1;
 		}
+	}
 		//Step 9: Sets Kernel arguments.
 		//Step 10: Running the kernel.
 		status = clEnqueueNDRangeKernel(clState->commandQueue, clState->kernel[1], 1, 0, globalThreads, 0, 0, NULL, NULL);
@@ -2073,7 +2074,7 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 		/* This finish flushes the writebuffer set with CL_FALSE in clEnqueueWriteBuffer */
 		clFinish(clState->commandQueue);
 	}
-
+	clReleaseKernel(clState->kernel[0]);
 	return hashes;
 }
 
@@ -2090,7 +2091,6 @@ static void opencl_thread_shutdown(struct thr_info *thr)
 	struct opencl_device_data * const data = cgpu->device_data;
 	const int thr_id = thr->id;
 	_clState *clState = clStates[thr_id];
-
 	for (unsigned i = 0; i < (unsigned)POW_ALGORITHM_COUNT; ++i)
 	{
 		opencl_clean_kernel_info(&data->kernelinfo[i]);

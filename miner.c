@@ -7024,6 +7024,7 @@ next_write_sws_del:
 			sshare->work = copy_work(work);
 			bin2hex(nonce2hex, bytes_buf(&work->nonce2), bytes_len(&work->nonce2));
 			nonce = *((uint32_t *)(work->data + 76));
+			nonce=swab32(nonce);
 			bin2hex(noncehex, (const unsigned char *)&nonce, 4);
 			bin2hex(ntimehex, (void *)&work->data[68], 4);
 			
