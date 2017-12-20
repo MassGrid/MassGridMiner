@@ -7508,7 +7508,7 @@ void set_blockdiff(struct mining_goal_info * const goal, const struct work * con
 	diff64 = diff;
 	suffix_string(diff64, goal->current_diff_str, sizeof(goal->current_diff_str), 0);
 	format_unit2(goal->net_hashrate, sizeof(goal->net_hashrate),
-	             true, "h/s", H2B_SHORT, diff * 7158278, -1);
+	             true, "h/s", H2B_SHORT, diff * 7158278*2, -1);
 	if (unlikely(goal->current_diff != diff))
 		applog(LOG_NOTICE, "Network difficulty changed to %s (%s)", goal->current_diff_str, goal->net_hashrate);
 	goal->current_diff = diff;

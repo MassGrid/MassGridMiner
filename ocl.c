@@ -535,7 +535,7 @@ bool jh_readBinaryFromFile(_clState * const clState,const char* binaryfilename,b
 {	cl_int status;
 	FILE * const binaryfile = fopen(binaryfilename, "rb");
 	if (!binaryfile)
-		applogr(false, LOG_ERR, "Error Cannot find binaryfile");
+		applogr(false, LOG_ERR, "Cannot find openclbinaryfile");
 	else
 	{
 		applog(LOG_DEBUG, "open success %s",binaryfilename);
@@ -853,7 +853,7 @@ err2:
 		snprintf(binaryname, sizeof(binaryname), "%s_%s.bin", name, algorithmname[i]);
 		if(!jh_readBinaryFromFile(clState,binaryname,&binary_bytes,i))
 		{
-			applog(LOG_DEBUG,"jh_readBinaryFromFile :%s false ,next to try buildprogram",sourcename);
+			applog(LOG_DEBUG,"jh_readBinaryFromFile :%s false ,next to try buildprogram",binaryname);
 			if(binary_bytes.buf!=NULL)
 				bytes_free(&binary_bytes);
 			size_t sourceSize[] = { 0 };
