@@ -467,6 +467,129 @@ void patch_opcodes(char *w, unsigned remaining)
 		count_bfe_int, count_bfe_uint, count_byte_align);
 	applog(LOG_DEBUG, "Patched a total of %i BFI_INT instructions", patched);
 }
+static
+bool jh_get_kernel_binary(struct cgpu_info * const cgpu, _clState * const clState, bytes_t * const b,const int algorithmId)
+{
+	cl_int status;
+	cl_uint slot, cpnd;
+	status = clGetProgramInfo(clState->program[algorithmId], CL_PROGRAM_NUM_DEVICES, sizeof(cl_uint), &cpnd, NULL);
+	if (unlikely(status != CL_SUCCESS))
+		applogr(false, LOG_ERR, "Error %d: Getting program info CL_PROGRAM_NUM_DEVICES. (clGetProgramInfo)", status);
+	if (!cpnd)
+		return false;
+
+	size_t binary_sizes[cpnd];
+	status = clGetProgramInfo(clState->program[algorithmId], CL_PROGRAM_BINARY_SIZES, sizeof(binary_sizes), binary_sizes, NULL);
+	if (unlikely(status != CL_SUCCESS))
+		applogr(false, LOG_ERR, "Error %d: Getting program info CL_PROGRAM_BINARY_SIZES. (clGetProgramInfo)", status);
+	
+	uint8_t **binaries = malloc(sizeof(*binaries) * cpnd);
+	for (slot = 0; slot < cpnd; ++slot)
+		binaries[slot] = malloc(binary_sizes[slot] + 1);
+
+	/* The actual compiled binary ends up in a RANDOM slot! Grr, so we have
+	 * to iterate over all the binary slots and find where the real program
+	 * is. What the heck is this!? */
+	for (slot = 0; slot < cpnd; slot++)
+		if (binary_sizes[slot])
+			break;
+
+	/* copy over all of the generated binaries. */
+	applog(LOG_DEBUG, "%s: Binary size found in binary slot %u: %"PRId64, cgpu->dev_repr, (unsigned)slot, (int64_t)binary_sizes[slot]);
+	if (!binary_sizes[slot])
+		applogr(false, LOG_ERR, "OpenCL compiler generated a zero sized binary, FAIL!");
+	status = clGetProgramInfo(clState->program[algorithmId], CL_PROGRAM_BINARIES, sizeof(binaries), binaries, NULL);
+	if (unlikely(status != CL_SUCCESS))
+		applogr(false, LOG_ERR, "Error %d: Getting program info. CL_PROGRAM_BINARIES (clGetProgramInfo)", status);
+	
+	bytes_resize(b, binary_sizes[slot]);
+	memcpy(bytes_buf(b), binaries[slot], bytes_len(b));
+	
+	for (slot = 0; slot < cpnd; ++slot)
+		free(binaries[slot]);
+	free(binaries);
+	
+	return true;
+}
+
+bool jh_writeBinaryToFile(const char* binaryfilename,bytes_t * const b)
+{
+    FILE *binaryfile;
+	
+	/* Save the binary to be loaded next time */
+	binaryfile = fopen(binaryfilename, "wb");
+	if (!binaryfile)
+		return false;
+	
+	// FIXME: Failure here results in a bad file; better to write and move-replace (but unlink before replacing for Windows)
+	if (unlikely(fwrite(bytes_buf(b), 1, bytes_len(b), binaryfile) != bytes_len(b)))
+	{
+		fclose(binaryfile);
+		return false;
+	}
+	
+	fclose(binaryfile);
+	return true;
+}
+bool jh_readBinaryFromFile(_clState * const clState,const char* binaryfilename,bytes_t * const b,const int algorithmId)
+{	cl_int status;
+	FILE * const binaryfile = fopen(binaryfilename, "rb");
+	if (!binaryfile)
+		applogr(false, LOG_ERR, "Error Cannot find binaryfile");
+	else
+	{
+		applog(LOG_DEBUG, "open success %s",binaryfilename);
+	}
+	struct stat binary_stat;
+	if (unlikely(stat(binaryfilename, &binary_stat)))
+	{
+		applog(LOG_DEBUG, "Unable to stat binary, generating from source");
+		fclose(binaryfile);
+		return false;
+	}
+	if (!binary_stat.st_size)
+	{
+		fclose(binaryfile);
+		return false;
+	}
+	
+	const size_t binsz = binary_stat.st_size;
+	bytes_resize(b, binsz);
+	if (fread(bytes_buf(b), 1, binsz, binaryfile) != binsz)
+	{
+		applog(LOG_ERR, "Unable to fread binaries");
+		fclose(binaryfile);
+		return false;
+	}
+	fclose(binaryfile);
+	
+	clState->program[algorithmId] = clCreateProgramWithBinary(clState->context, 1, &clState->devid, &binsz, (void*)&bytes_buf(b), &status, NULL);
+	if (status != CL_SUCCESS)
+		applogr(false, LOG_ERR, "Error %d: Loading Binary into cl_program (clCreateProgramWithBinary)", status);
+	
+	status = bfg_clBuildProgram(&clState->program[algorithmId], clState->devid, NULL);
+	if (status != CL_SUCCESS)
+		return false;
+	
+	applog(LOG_DEBUG, "Loaded binary image %s", binaryfilename);
+	return true;
+}
+static
+bool jh_build_kernel( _clState * const clState, const char *source, const size_t source_len,const int algorithmId)
+{
+	cl_int status;
+	clState->program[algorithmId] = clCreateProgramWithSource(clState->context, 1, &source, &source_len, &status);
+	if (status != CL_SUCCESS)
+		applogr(false, LOG_ERR, "Error %d: Loading Binary into cl_program (clCreateProgramWithSource)", status);
+	char CompilerOptions[]= "-I opencl";
+	/* create a cl program executable for all the devices specified */
+	status = bfg_clBuildProgram(&clState->program[algorithmId], clState->devid, CompilerOptions);
+	if (status != CL_SUCCESS)
+	{
+		return false;	
+	}
+	return true;
+}
 
 _clState *opencl_create_clState(unsigned int gpu, char *name, size_t nameSize)
 {
@@ -718,6 +841,31 @@ err2:
 	if (status != CL_SUCCESS) {
 		applog(LOG_ERR, "Error %d: clCreateBuffer (inputBuffer)", status);
 		goto err;
+	}
+	char *algorithmname[]={"blake","bmw","groestl","skein","jh","keccak",
+					"luffa","cubehash","shavite","simd","echo","hamsi",
+					"fugue","sha256d"};
+	bytes_t binary_bytes = BYTES_INIT;
+	for(int i=0;i<sizeof(algorithmname)/sizeof (char*);++i)
+	{
+		char binaryname[256],sourcename[256];
+		snprintf(sourcename, sizeof(sourcename), "%s.cl", algorithmname[i]);
+		snprintf(binaryname, sizeof(binaryname), "%s_%s.bin", name, algorithmname[i]);
+		if(!jh_readBinaryFromFile(clState,binaryname,&binary_bytes,i))
+		{
+			applog(LOG_DEBUG,"jh_readBinaryFromFile :%s false ,next to try buildprogram",sourcename);
+			if(binary_bytes.buf!=NULL)
+				bytes_free(&binary_bytes);
+			size_t sourceSize[] = { 0 };
+			const char *source = file_contents(sourcename, sourceSize);
+			if(!jh_build_kernel(clState,source,*sourceSize,i))
+			goto err;
+			else{
+				applog(LOG_DEBUG,"buid program :%s success",sourcename);
+				jh_get_kernel_binary(cgpu,clState,&binary_bytes,i);
+				jh_writeBinaryToFile(binaryname,&binary_bytes);
+			}
+		}
 	}
 
 	return clState;

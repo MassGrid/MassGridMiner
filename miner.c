@@ -5134,6 +5134,7 @@ void share_result_msg(const struct work *work, const char *disp, const char *rea
 	const unsigned char *hashpart = &work->hash[0x1c - malgo->ui_skip_hash_bytes];
 	char shrdiffdisp[ALLOC_H2B_SHORTV];
 	const double tgtdiff = work->work_difficulty;
+	//applog(LOG_DEBUG,"work->work_difficulty %f",work->work_difficulty);
 	char tgtdiffdisp[ALLOC_H2B_SHORTV];
 	char where[20];
 	
@@ -7502,13 +7503,12 @@ void set_blockdiff(struct mining_goal_info * const goal, const struct work * con
 	unsigned char target[32];
 	double diff;
 	uint64_t diff64;
-
 	real_block_target(target, work->data);
 	diff = target_diff(target);
-	diff64 = diff*2;
+	diff64 = diff;
 	suffix_string(diff64, goal->current_diff_str, sizeof(goal->current_diff_str), 0);
 	format_unit2(goal->net_hashrate, sizeof(goal->net_hashrate),
-	             true, "h/s", H2B_SHORT, diff * 7158278*2, -1);
+	             true, "h/s", H2B_SHORT, diff * 7158278, -1);
 	if (unlikely(goal->current_diff != diff))
 		applog(LOG_NOTICE, "Network difficulty changed to %s (%s)", goal->current_diff_str, goal->net_hashrate);
 	goal->current_diff = diff;

@@ -103,7 +103,8 @@ void SHA256Initialize(SHA256_CTX *ctx) {
 }
 
 void SHA256Update(SHA256_CTX *ctx, const BYTE *in, size_t inLen) {
-	ctx->totalLength += inLen*8;
+	uint len=ctx->totalLength;
+	ctx->totalLength =len+ inLen*8;
 	for (int i=0; i<inLen; i++){
 		ctx->data[ctx->dataLength] = in[i];
 		ctx->dataLength++;

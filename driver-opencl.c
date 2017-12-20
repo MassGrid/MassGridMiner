@@ -1828,91 +1828,6 @@ const struct opencl_kernel_info *opencl_scanhash_get_kernel(struct cgpu_info * c
 	}
 	return kernelinfo;
 }
-int buildKernel(int thr_id,int algorithmId) {
-	char *filename;
-		switch (algorithmId) {
-		case 0:
-			filename = "blake.cl";
-			break;
-		case 1:
-			filename = "bmw.cl";
-			break;
-		case 2:
-			filename = "groestl.cl";
-			break;
-		case 3:
-			filename = "skein.cl";
-			break;
-		case 4:
-			filename = "jh.cl";
-			break;
-		case 5:
-			filename = "keccak.cl";
-			break;
-		case 6:
-			filename = "luffa.cl";
-			break;
-		case 7:
-			filename = "cubehash.cl";
-			break;
-		case 8:
-			filename = "shavite.cl";
-			break;
-		case 9:
-			filename = "simd.cl";
-			break;
-		case 10:
-			filename = "echo.cl";
-			break;
-		case 11:
-			filename = "hamsi.cl";
-			break;
-		case 12:
-			filename = "fugue.cl";
-			break;
-		case 13:
-			filename = "sha256d.cl";
-			break;
-		default:
-			filename = "bmw.cl";
-			break;
-		}
-		applog(LOG_DEBUG,"choose algorithm: %s\n", filename);
-		size_t sourceSize[] = { 0 };
-		const char *source = file_contents(filename, sourceSize);
-		cl_int	status;
-		clStates[thr_id]->program[algorithmId] = clCreateProgramWithSource(clStates[thr_id]->context, 1, &source, sourceSize, NULL);
-
-		/*Step 6: Build program. */
-		applog(LOG_DEBUG,"build program...");
-		status = clBuildProgram(clStates[thr_id]->program[algorithmId], 1, &clStates[thr_id]->devid, "-I opencl", NULL, NULL);
-		if (status != CL_SUCCESS)
-		{
-			int temp=status;
-			applog(LOG_ERR,"fail\n");
-			size_t len;
-			char buffer[204800];
-			cl_build_status bldstatus;
-			applog(LOG_ERR,"\nError %d:\n", status);
-			status = clGetProgramBuildInfo(clStates[thr_id]->program[algorithmId], clStates[thr_id]->devid, CL_PROGRAM_BUILD_STATUS, sizeof(bldstatus), (void *)&bldstatus, &len);
-			applog(LOG_DEBUG,"Build Status %d:\n", status);
-			if (bldstatus == CL_BUILD_SUCCESS) applog(LOG_DEBUG,"Build Status: CL_BUILD_SUCCESS\n");
-			if (bldstatus == CL_BUILD_NONE) applog(LOG_ERR,"Build Status: CL_BUILD_NONE\n");
-			if (bldstatus == CL_BUILD_ERROR) applog(LOG_ERR,"Build Status: CL_BUILD_ERROR\n");
-			if (bldstatus == CL_BUILD_IN_PROGRESS) applog(LOG_ERR,"Build Status: CL_BUILD_IN_PROGRESS\n");
-			status = clGetProgramBuildInfo(clStates[thr_id]->program[algorithmId], clStates[thr_id]->devid, CL_PROGRAM_BUILD_OPTIONS, sizeof(buffer), buffer, &len);
-			applog(LOG_DEBUG,"Build Options: %s\n", buffer);
-			status = clGetProgramBuildInfo(clStates[thr_id]->program[algorithmId], clStates[thr_id]->devid, CL_PROGRAM_BUILD_LOG, sizeof(buffer), buffer, &len);
-			applog(LOG_DEBUG,"Build Log:\n%s\n", buffer);
-			return temp;
-		}
-	free(source);
-	//Step 8: Create kernel object 
-	applog(LOG_DEBUG,"done\n");
-	
-	return status;
-}
-
 void Hex2Str(unsigned char *sSrc, unsigned char *sDest, int nSrcLen)
 {
 	int  i;
@@ -1949,8 +1864,6 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 	cl_int status;
 	if(!clState->isbuildkernel)
 	{
-		for(int i=0; i<14;++i)
-		buildKernel(thr_id,i);
 		clState->isbuildkernel=!clState->isbuildkernel;
 		clState->kernel[1] = clCreateKernel(clState->program[13], "scanHash_post",&status);
 		status = clSetKernelArg(clState->kernel[1], 0, sizeof(cl_mem), &clState->deviceBuffer);
@@ -2024,14 +1937,14 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 		applog(LOG_ERR, "Error: clSetKernelArg of all params failed.");
 		return -1;
 	}
-	for (int i=0;i<80;++i){
+	//for (int i=0;i<80;++i){
 		status = clEnqueueNDRangeKernel(clState->commandQueue, clState->kernel[0], 1, 0, globalThreads, 0, 0, NULL, NULL);
 
 		if (unlikely(status != CL_SUCCESS)) {
 			applog(LOG_ERR, "Error %d: Enqueueing kernel onto command queue. (clEnqueueNDRangeKernel)", status);
 			return -1;
 		}
-	}
+	//}
 		//Step 9: Sets Kernel arguments.
 		//Step 10: Running the kernel.
 		status = clEnqueueNDRangeKernel(clState->commandQueue, clState->kernel[1], 1, 0, globalThreads, 0, 0, NULL, NULL);
