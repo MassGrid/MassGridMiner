@@ -535,7 +535,7 @@ bool jh_readBinaryFromFile(_clState * const clState,const char* binaryfilename,b
 {	cl_int status;
 	FILE * const binaryfile = fopen(binaryfilename, "rb");
 	if (!binaryfile)
-		applogr(false, LOG_ERR, "Cannot find openclbinaryfile");
+		applogr(false, LOG_DEBUG, "Cannot find openclbinaryfile");
 	else
 	{
 		applog(LOG_DEBUG, "open success %s",binaryfilename);
