@@ -146,8 +146,8 @@ void echo(hash_t* hash)
 
 	__local sph_u32 AES0[256], AES1[256], AES2[256], AES3[256];
 
-	int init = get_local_id(0);
-	int step = get_local_size(0);
+	//int init = get_local_id(0);
+	//int step = get_local_size(0);
 
 	for (int i = 0; i < 256; i++)
 	{
@@ -205,6 +205,7 @@ void echo(hash_t* hash)
 	WF0 = 0x200;
 	WF1 = 0;
 
+#pragma unroll
 	for (unsigned u = 0; u < 10; u++) {
 		BIG_ROUND;
 	}
@@ -234,6 +235,7 @@ __kernel void scanHash_pre(__global char* input, __global char* output, const ui
 	hashdata.h4[15] = gid + nonceStart;
 
 	echo(&hashdata);
+	#pragma unroll
 	for (int i = 0; i < 64; i++) {
 		output[64*gid+i] = hashdata.h1[i];
 	}
@@ -245,6 +247,7 @@ __kernel void scanHash_post(__global char* input, __global char* output,__global
 	
 	//todo : assemble hash data inside kernel with nonce
 	hash_t hashdata;
+	#pragma unroll
 	for (int i = 0; i < 64; i++) {
 		hashdata.h1[i] = input[64*gid+i];
 	}
@@ -268,6 +271,7 @@ __kernel void scanHash_check_pre(__global char* input, __global char* output, co
 	uint gid = get_global_id(0);
 	//todo : assemble hash data inside kernel with nonce
 	hash_t hashdata;
+	#pragma unroll
 	for (int i = 0; i < 64; i++) {
 		hashdata.h1[i] = input[i];
 	}
@@ -275,6 +279,7 @@ __kernel void scanHash_check_pre(__global char* input, __global char* output, co
 	hashdata.h4[15] = nonce;
 
 	echo(&hashdata);
+	#pragma unroll
 	for (int i = 0; i < 64; i++) {
 		output[64*gid+i] = hashdata.h1[i];
 	}
