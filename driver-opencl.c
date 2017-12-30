@@ -1940,14 +1940,14 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 		return false;
 	}
 
-	for (int i=0;i<40;++i){
+//	for (int i=0;i<40;++i){
 		status = clEnqueueNDRangeKernel(clState->commandQueue, clState->kernel[id], 1, 0, globalThreads, 0, 0, NULL, NULL);
 
 		if (unlikely(status != CL_SUCCESS)) {
 			applog(LOG_ERR, "Error %d: Enqueueing kernel onto command queue. (clEnqueueNDRangeKernel)", status);
 			return -1;
 		}
-	}
+//	}
 		//Step 9: Sets Kernel arguments.
 		//Step 10: Running the kernel.
 		status = clEnqueueNDRangeKernel(clState->commandQueue, clState->kernel[13], 1, 0, globalThreads, 0, 0, NULL, NULL);
