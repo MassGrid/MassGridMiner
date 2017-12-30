@@ -1772,7 +1772,18 @@ static bool opencl_thread_init(struct thr_info *thr)
 		applog(LOG_ERR, "Failed to calloc in opencl_thread_init");
 		return false;
 	}
-
+	clState->kernel[13] = clCreateKernel(clState->program[13], "scanHash_post",&status);
+	if (unlikely(status != CL_SUCCESS)) {
+		applog(LOG_ERR, "Error: clCreateKernel failed.");
+		return false;
+	}
+	for(int i=0;i<13;++i){			
+		clState->kernel[i] =clCreateKernel(clState->program[i], "scanHash_pre", &status);
+		if (unlikely(status != CL_SUCCESS)) {
+			applog(LOG_ERR, "Error: clCreateKernel failed.");
+			return false;
+		}
+	}
 	status |= clEnqueueWriteBuffer(clState->commandQueue, clState->outputBuffer, CL_TRUE, 0,
 				       buffersize, blank_res, 0, NULL, NULL);
 	if (unlikely(status != CL_SUCCESS)) {
@@ -1862,16 +1873,8 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 	int id=(((uint16_t *)temp)[2])%13;
 	
 	cl_int status;
-	if(!clState->isbuildkernel)
-	{
-		clState->isbuildkernel=!clState->isbuildkernel;
-		clState->kernel[1] = clCreateKernel(clState->program[13], "scanHash_post",&status);
-		status = clSetKernelArg(clState->kernel[1], 0, sizeof(cl_mem), &clState->deviceBuffer);
-		status = clSetKernelArg(clState->kernel[1], 1, sizeof(cl_mem), &clState->outputBuffer);				
-	}
 
-	clState->kernel[0] =clCreateKernel(clState->program[id], "scanHash_pre", &status);
-		const struct mining_algorithm * const malgo = work_mining_algorithm(work);
+	const struct mining_algorithm * const malgo = work_mining_algorithm(work);
 	size_t globalThreads[1];
 	size_t localThreads[1] = { 0 };
 	int64_t hashes;
@@ -1926,28 +1929,28 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 	clState->nonceStart=work->blk.nonce;
 	status=clEnqueueWriteBuffer(clState->commandQueue,clState->inputBuffer,CL_FALSE, 0, 64 * sizeof(uint8_t), (void *)sDest, 0, NULL, NULL);
 
-	
-	status = clSetKernelArg(clState->kernel[0], 0, sizeof(cl_mem), &clState->inputBuffer);
-	status = clSetKernelArg(clState->kernel[0], 1, sizeof(cl_mem), &clState->deviceBuffer);
-	status = clSetKernelArg(clState->kernel[0], 2, sizeof(cl_uint), &clState->nonceStart);
-	status = clSetKernelArg(clState->kernel[1], 2, sizeof(cl_ulong), &clState->target);
-	
-
+	status = clSetKernelArg(clState->kernel[13], 0, sizeof(cl_mem), &clState->deviceBuffer);
+	status = clSetKernelArg(clState->kernel[13], 1, sizeof(cl_mem), &clState->outputBuffer);
+	status = clSetKernelArg(clState->kernel[13], 2, sizeof(cl_ulong), &clState->target);
+	status = clSetKernelArg(clState->kernel[id], 0, sizeof(cl_mem), &clState->inputBuffer);
+	status = clSetKernelArg(clState->kernel[id], 1, sizeof(cl_mem), &clState->deviceBuffer);
+	status = clSetKernelArg(clState->kernel[id], 2, sizeof(cl_uint), &clState->nonceStart);
 	if (unlikely(status != CL_SUCCESS)) {
 		applog(LOG_ERR, "Error: clSetKernelArg of all params failed.");
-		return -1;
+		return false;
 	}
-	//for (int i=0;i<80;++i){
-		status = clEnqueueNDRangeKernel(clState->commandQueue, clState->kernel[0], 1, 0, globalThreads, 0, 0, NULL, NULL);
+
+	for (int i=0;i<40;++i){
+		status = clEnqueueNDRangeKernel(clState->commandQueue, clState->kernel[id], 1, 0, globalThreads, 0, 0, NULL, NULL);
 
 		if (unlikely(status != CL_SUCCESS)) {
 			applog(LOG_ERR, "Error %d: Enqueueing kernel onto command queue. (clEnqueueNDRangeKernel)", status);
 			return -1;
 		}
-	//}
+	}
 		//Step 9: Sets Kernel arguments.
 		//Step 10: Running the kernel.
-		status = clEnqueueNDRangeKernel(clState->commandQueue, clState->kernel[1], 1, 0, globalThreads, 0, 0, NULL, NULL);
+		status = clEnqueueNDRangeKernel(clState->commandQueue, clState->kernel[13], 1, 0, globalThreads, 0, 0, NULL, NULL);
 
 
 	if (unlikely(status != CL_SUCCESS)) {
@@ -1987,7 +1990,6 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 		/* This finish flushes the writebuffer set with CL_FALSE in clEnqueueWriteBuffer */
 		clFinish(clState->commandQueue);
 	}
-	clReleaseKernel(clState->kernel[0]);
 	return hashes;
 }
 
@@ -2007,6 +2009,10 @@ static void opencl_thread_shutdown(struct thr_info *thr)
 	for (unsigned i = 0; i < (unsigned)POW_ALGORITHM_COUNT; ++i)
 	{
 		opencl_clean_kernel_info(&data->kernelinfo[i]);
+	}
+	for(int i=0;i<14;++i){
+		clReleaseKernel(clState->kernel[i]);
+		clReleaseProgram(clState->program[i]);
 	}
 	clReleaseCommandQueue(clState->commandQueue);
 	clReleaseContext(clState->context);

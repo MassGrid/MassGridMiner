@@ -698,7 +698,7 @@ err2:
 
 	cl_context_properties cps[3] = { CL_CONTEXT_PLATFORM, (cl_context_properties)platform, 0 };
 
-	clState->context = clCreateContextFromType(cps, CL_DEVICE_TYPE_GPU, NULL, NULL, &status);
+	clState->context = clCreateContext(NULL, 1, &devices[gpu], NULL, NULL, NULL);
 	if (status != CL_SUCCESS) {
 		applog(LOG_ERR, "Error %d: Creating Context. (clCreateContextFromType)", status);
 		goto err2;
