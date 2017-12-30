@@ -1987,7 +1987,7 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 		/* This finish flushes the writebuffer set with CL_FALSE in clEnqueueWriteBuffer */
 		clFinish(clState->commandQueue);
 	}
-	clReleaseKernel(clState->kernel[0]);
+
 	return hashes;
 }
 
