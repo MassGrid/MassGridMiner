@@ -701,14 +701,14 @@ void fugue(hash_t* hash)
 
 	// apply round shift if necessary
 	int i;
-
+	#pragma unroll
 	for (i = 0; i < 32; i++)
 	{
 		ROR3;
 		CMIX36(S00, S01, S02, S04, S05, S06, S18, S19, S20);
 		SMIX(S00, S01, S02, S03);
 	}
-
+	#pragma unroll
 	for (i = 0; i < 13; i++)
 	{
 		S04 ^= S00;
@@ -767,6 +767,7 @@ __kernel void scanHash_pre(__global char* input, __global char* output, const ui
 	uint gid = get_global_id(0);
 	//todo : assemble hash data inside kernel with nonce
 	hash_t hashdata;
+	#pragma unroll
 	for (int i = 0; i < 64; i++) {
 		hashdata.h1[i] = input[i];
 	}
@@ -774,6 +775,7 @@ __kernel void scanHash_pre(__global char* input, __global char* output, const ui
 	hashdata.h4[15] = gid + nonceStart;
 
 	fugue(&hashdata);
+	#pragma unroll
 	for (int i = 0; i < 64; i++) {
 		output[64*gid+i] = hashdata.h1[i];
 	}
