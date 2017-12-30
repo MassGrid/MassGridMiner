@@ -1429,8 +1429,8 @@ void groestl(hash_t* hash)
     
     __local sph_u64 T0_L[256], T1_L[256], T2_L[256], T3_L[256], T4_L[256], T5_L[256], T6_L[256], T7_L[256];
     
-    int init = get_local_id(0);
-    int step = get_local_size(0);
+    //int init = get_local_id(0);
+    //int step = get_local_size(0);
     
     for (int i = 0; i < 256; i ++)
     {

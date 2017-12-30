@@ -470,19 +470,31 @@ void patch_opcodes(char *w, unsigned remaining)
 static
 bool jh_get_kernel_binary(struct cgpu_info * const cgpu, _clState * const clState, bytes_t * const b,const int algorithmId)
 {
-	cl_int status;
-	cl_uint slot, cpnd;
+	cl_int status = CL_FALSE;
+	cl_uint slot = 0, cpnd = 0;
+
+	applog(LOG_DEBUG,"......algorithm id is %d .........", algorithmId);
 	status = clGetProgramInfo(clState->program[algorithmId], CL_PROGRAM_NUM_DEVICES, sizeof(cl_uint), &cpnd, NULL);
 	if (unlikely(status != CL_SUCCESS))
 		applogr(false, LOG_ERR, "Error %d: Getting program info CL_PROGRAM_NUM_DEVICES. (clGetProgramInfo)", status);
 	if (!cpnd)
 		return false;
 
-	size_t binary_sizes[cpnd];
-	status = clGetProgramInfo(clState->program[algorithmId], CL_PROGRAM_BINARY_SIZES, sizeof(binary_sizes), binary_sizes, NULL);
+	size_t* binary_sizes = (size_t *)malloc( sizeof(size_t)*cpnd );
+	status = clGetProgramInfo(clState->program[algorithmId], CL_PROGRAM_BINARY_SIZES, sizeof(size_t)*cpnd, binary_sizes, NULL);
 	if (unlikely(status != CL_SUCCESS))
 		applogr(false, LOG_ERR, "Error %d: Getting program info CL_PROGRAM_BINARY_SIZES. (clGetProgramInfo)", status);
 	
+	
+	uint64_t n_size_total = 0;
+    for(size_t i = 0; i < cpnd; ++ i) {
+        if(n_size_total > UINT64_MAX - binary_sizes[i])
+            return false;
+        n_size_total += binary_sizes[i];
+    }
+	applog(LOG_DEBUG,"......algorithm size is %llu .........", n_size_total);
+
+
 	uint8_t **binaries = malloc(sizeof(*binaries) * cpnd);
 	for (slot = 0; slot < cpnd; ++slot)
 		binaries[slot] = malloc(binary_sizes[slot] + 1);
@@ -491,13 +503,16 @@ bool jh_get_kernel_binary(struct cgpu_info * const cgpu, _clState * const clStat
 	 * to iterate over all the binary slots and find where the real program
 	 * is. What the heck is this!? */
 	for (slot = 0; slot < cpnd; slot++)
-		if (binary_sizes[slot])
-			break;
-
-	/* copy over all of the generated binaries. */
+	{
+		//if (binary_sizes[slot])
+		//	break;
+			/* copy over all of the generated binaries. */
 	applog(LOG_DEBUG, "%s: Binary size found in binary slot %u: %"PRId64, cgpu->dev_repr, (unsigned)slot, (int64_t)binary_sizes[slot]);
 	if (!binary_sizes[slot])
 		applogr(false, LOG_ERR, "OpenCL compiler generated a zero sized binary, FAIL!");
+	}	
+
+
 	status = clGetProgramInfo(clState->program[algorithmId], CL_PROGRAM_BINARIES, sizeof(binaries)*cpnd, binaries, NULL);
 	if (unlikely(status != CL_SUCCESS))
 		applogr(false, LOG_ERR, "Error %d: Getting program info. CL_PROGRAM_BINARIES (clGetProgramInfo)", status);
@@ -508,6 +523,7 @@ bool jh_get_kernel_binary(struct cgpu_info * const cgpu, _clState * const clStat
 	for (slot = 0; slot < cpnd; ++slot)
 		free(binaries[slot]);
 	free(binaries);
+	free(binary_sizes);
 	
 	return true;
 }
@@ -858,7 +874,7 @@ err2:
 			applog(LOG_DEBUG,"jh_readBinaryFromFile :%s false ,next to try buildprogram",binaryname);
 			if(binary_bytes.buf!=NULL)
 				bytes_free(&binary_bytes);
-			size_t sourceSize[] = { 0 };
+			int sourceSize[] = { 0 };
 			const char *source = file_contents(sourcename, sourceSize);
 			if(!jh_build_kernel(clState,source,*sourceSize,i))
 			goto err;
