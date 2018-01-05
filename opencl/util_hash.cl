@@ -59,14 +59,15 @@ typedef long sph_s64;
 #endif
 
 typedef union {
-	unsigned char h1[64];
+	uchar h1[64];
 	uint h4[16];
 	ulong h8[8];
 } hash_t;
 typedef union {
-	unsigned char h1[32];
+	uchar h1[32];
 	uint h4[8];
 	ulong h8[4];
 } hash_t32;
-
+#define THREADWIDTH 128
+#define FOUND 0x0F
 #endif //__UTIL_HASH__

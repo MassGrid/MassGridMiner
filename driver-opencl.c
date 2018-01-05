@@ -1,4 +1,4 @@
-/*
+ /*
  * Copyright 2011-2013 Con Kolivas
  * Copyright 2011-2014 Luke Dashjr
  * Copyright 2014 Nate Woolls
@@ -157,6 +157,15 @@ CL_API_ENTRY cl_int CL_API_CALL
                       size_t                /* param_value_size */,
                       void *                /* param_value */,
                       size_t *              /* param_value_size_ret */) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY cl_int CL_API_CALL
+(*clGetEventInfo )(cl_event,
+        cl_event_info,
+        size_t,
+        void *,
+        size_t *)CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY cl_int CL_API_CALL
+(*clWaitForEvents) (cl_uint,
+        cl_event)CL_API_SUFFIX__VERSION_1_0;
 
 /* Kernel Object APIs */
 CL_API_ENTRY cl_kernel CL_API_CALL
@@ -176,7 +185,10 @@ CL_API_ENTRY cl_int CL_API_CALL
 /* Flush and Finish APIs */
 CL_API_ENTRY cl_int CL_API_CALL
 (*clFinish)(cl_command_queue /* command_queue */) CL_API_SUFFIX__VERSION_1_0;
-
+CL_API_ENTRY cl_int CL_API_CALL
+(*clFlush)(cl_command_queue /* command_queue */) CL_API_SUFFIX__VERSION_1_0;
+CL_API_ENTRY cl_int CL_API_CALL
+(*clEnqueueBarrier)(cl_command_queue /* command_queue */) CL_API_SUFFIX__VERSION_1_0;
 /* Enqueued Commands APIs */
 CL_API_ENTRY cl_int CL_API_CALL
 (*clEnqueueReadBuffer)(cl_command_queue    /* command_queue */,
@@ -256,12 +268,15 @@ load_opencl_symbols() {
 	LOAD_OCL_SYM(clGetProgramBuildInfo);
 	LOAD_OCL_SYM(clCreateKernel);
 	LOAD_OCL_SYM(clReleaseKernel);
-	LOAD_OCL_SYM(clSetKernelArg);
-	LOAD_OCL_SYM(clFinish);
+    LOAD_OCL_SYM(clSetKernelArg);
+    LOAD_OCL_SYM(clFinish);
+    LOAD_OCL_SYM(clFlush);
+    LOAD_OCL_SYM(clGetEventInfo);
+    LOAD_OCL_SYM(clEnqueueBarrier);
 	LOAD_OCL_SYM(clEnqueueReadBuffer);
 	LOAD_OCL_SYM(clEnqueueWriteBuffer);
 	LOAD_OCL_SYM(clEnqueueNDRangeKernel);
-	
+    LOAD_OCL_SYM(clWaitForEvents);
 	return true;
 }
 
@@ -279,6 +294,8 @@ extern void enable_curses(void);
 
 extern int mining_threads;
 extern int opt_g_threads;
+extern int opt_gpuglobal_threads;
+extern int opt_gputhread_width;
 extern bool ping;
 extern bool opt_loginput;
 extern char *opt_kernel_path;
@@ -778,7 +795,8 @@ const char *set_intensity(char *arg)
 }
 
 _SET_INT_LIST2(gpu_threads, (v >= 1 && v <= 10), cgpu->threads)
-
+_SET_INT_LIST2(gpuglobal_threads, (v >= 1 && v <= 0xffffff), opt_gpuglobal_threads)
+_SET_INT_LIST2(gputhread_width, (v >= 1 && v <= 0xffff), opt_gputhread_width)
 void write_config_opencl(FILE * const fcfg)
 {
 #ifdef HAVE_ADL
@@ -1513,6 +1531,14 @@ static int opencl_autodetect()
 		opt_g_threads = 1;
 	}
 
+	if (opt_gpuglobal_threads == -1) {
+		// NOTE: This should ideally default to 2 for non-scrypt
+		opt_gpuglobal_threads = 0x10000;
+	}
+	if (opt_gputhread_width == -1) {
+		// NOTE: This should ideally default to 2 for non-scrypt
+		opt_gputhread_width = 128;
+	}
 #ifdef HAVE_SENSORS
 	const sensors_chip_name *cn;
 	int c = 0;
@@ -1772,25 +1798,13 @@ static bool opencl_thread_init(struct thr_info *thr)
 		applog(LOG_ERR, "Failed to calloc in opencl_thread_init");
 		return false;
 	}
-	clState->kernel[13] = clCreateKernel(clState->program[13], "scanHash_post",&status);
-	if (unlikely(status != CL_SUCCESS)) {
-		applog(LOG_ERR, "Error: clCreateKernel failed.");
-		return false;
-	}
 	for(int i=0;i<13;++i){			
-		clState->kernel[i] =clCreateKernel(clState->program[i], "scanHash_pre", &status);
+		clState->kernel[i] =clCreateKernel(clState->program[i], "scanHash", &status);
 		if (unlikely(status != CL_SUCCESS)) {
 			applog(LOG_ERR, "Error: clCreateKernel failed.");
 			return false;
 		}
 	}
-	status |= clEnqueueWriteBuffer(clState->commandQueue, clState->outputBuffer, CL_TRUE, 0,
-				       buffersize, blank_res, 0, NULL, NULL);
-	if (unlikely(status != CL_SUCCESS)) {
-		applog(LOG_ERR, "Error: clEnqueueWriteBuffer failed.");
-		return false;
-	}
-
 	gpu->status = LIFE_WELL;
 
 	gpu->device_last_well = time(NULL);
@@ -1863,15 +1877,17 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 	const uint8_t *data1 = work->data;
 	uint8_t * const hash = work->hash;
 	uint32_t *const hash32 = (uint32_t *) hash;
-	uint8_t sDest[65],temp[500],base[32];
-	swap32yes(temp,data1,76 / 4);
-	SHA256_CTX ctx;
-	SHA256Initialize(&ctx);
-	SHA256Update(&ctx,(BYTE*)temp,76);
-	SHA256Finalize(&ctx,(BYTE*)base);
-	Hex2Str(base,sDest,32);
-	int id=(((uint16_t *)temp)[2])%13;
-	
+	uint8_t *sDest=work->hashbase;
+	if(work->blk.nonce==0){
+		uint8_t temp[500],base[32];
+		swap32yes(temp,data1,76 / 4);
+		SHA256_CTX ctx;
+		SHA256Initialize(&ctx);
+		SHA256Update(&ctx,(BYTE*)temp,76);
+		SHA256Finalize(&ctx,(BYTE*)base);
+		Hex2Str(base,sDest,32);
+        work->hashid=bswap_16(((uint16_t *)data1)[3])%13;
+    }
 	cl_int status;
 
 	const struct mining_algorithm * const malgo = work_mining_algorithm(work);
@@ -1881,44 +1897,11 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 	const int dynamic_us = opt_dynamic_interval * 1000;
 	int found = FOUND;
 	int buffersize = BUFFERSIZE;
-#ifdef USE_SCRYPT
-	if (malgo->algo == POW_SCRYPT)
-	{
-		found = SCRYPT_FOUND;
-		buffersize = SCRYPT_BUFFERSIZE;
-	}
-#endif
-	if (data->intensity != intensity_not_set)
-		data->oclthreads = malgo->opencl_intensity_to_oclthreads(data->intensity);
 
-	/* Windows' timer resolution is only 15ms so oversample 5x */
-	if (data->dynamic && (++data->intervals * dynamic_us) > 70000) {
-		struct timeval tv_gpuend;
-		double gpu_us;
 
-		cgtime(&tv_gpuend);
-		gpu_us = us_tdiff(&tv_gpuend, &data->tv_gpustart) / data->intervals;
-		if (gpu_us > dynamic_us) {
-			const unsigned long min_oclthreads = malgo->opencl_min_oclthreads;
-			data->oclthreads /= 2;
-			if (data->oclthreads < min_oclthreads)
-				data->oclthreads = min_oclthreads;
-		} else if (gpu_us < dynamic_us / 2) {
-			const unsigned long max_oclthreads = malgo->opencl_max_oclthreads;
-			data->oclthreads *= 2;
-			if (data->oclthreads > max_oclthreads)
-				data->oclthreads = max_oclthreads;
-		}
-		if (data->intensity != intensity_not_set)
-			data->intensity = malgo->opencl_oclthreads_to_intensity(data->oclthreads);
-		memcpy(&(data->tv_gpustart), &tv_gpuend, sizeof(struct timeval));
-		data->intervals = 0;
-	}
 
-	if (data->oclthreads < localThreads[0])
-		data->oclthreads = localThreads[0];
-	globalThreads[0] = GLOBALTHREAD;
-	hashes = globalThreads[0];
+    globalThreads[0] = opt_gpuglobal_threads;
+    hashes = globalThreads[0]*opt_gputhread_width;
 	hashes *= clState->vwidth;
 
 	if (hashes > gpu->max_hashes)
@@ -1928,56 +1911,68 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 	clState->target= p_target[3];
 	clState->nonceStart=work->blk.nonce;
 	status=clEnqueueWriteBuffer(clState->commandQueue,clState->inputBuffer,CL_FALSE, 0, 64 * sizeof(uint8_t), (void *)sDest, 0, NULL, NULL);
-
-	status = clSetKernelArg(clState->kernel[13], 0, sizeof(cl_mem), &clState->deviceBuffer);
-	status = clSetKernelArg(clState->kernel[13], 1, sizeof(cl_mem), &clState->outputBuffer);
-	status = clSetKernelArg(clState->kernel[13], 2, sizeof(cl_ulong), &clState->target);
-	status = clSetKernelArg(clState->kernel[id], 0, sizeof(cl_mem), &clState->inputBuffer);
-	status = clSetKernelArg(clState->kernel[id], 1, sizeof(cl_mem), &clState->deviceBuffer);
-	status = clSetKernelArg(clState->kernel[id], 2, sizeof(cl_uint), &clState->nonceStart);
+    if (unlikely(status != CL_SUCCESS)) {
+             applog(LOG_ERR, "Error: clEnqueueWriteBuffer failed error %d. (clEnqueueWriteBuffer)", status);
+             return -1;
+    }
+	status = clSetKernelArg(clState->kernel[work->hashid], 0, sizeof(cl_mem), &clState->inputBuffer);
+	status = clSetKernelArg(clState->kernel[work->hashid], 1, sizeof(cl_mem), &clState->outputBuffer);
+	status = clSetKernelArg(clState->kernel[work->hashid], 2, sizeof(cl_ulong), &clState->target);
+	status = clSetKernelArg(clState->kernel[work->hashid], 3, sizeof(cl_uint), &clState->nonceStart);
 	if (unlikely(status != CL_SUCCESS)) {
 		applog(LOG_ERR, "Error: clSetKernelArg of all params failed.");
 		return false;
 	}
-
-	for (int i=0;i<40;++i){
-		status = clEnqueueNDRangeKernel(clState->commandQueue, clState->kernel[id], 1, 0, globalThreads, 0, 0, NULL, NULL);
-
-		if (unlikely(status != CL_SUCCESS)) {
+	status = clEnqueueNDRangeKernel(clState->commandQueue, clState->kernel[work->hashid], 1, 0, globalThreads, 0, 0, NULL, &clState->evt);
+	if (unlikely(status != CL_SUCCESS)) {
 			applog(LOG_ERR, "Error %d: Enqueueing kernel onto command queue. (clEnqueueNDRangeKernel)", status);
+			return -1;
+	}
+	if(opt_gputhread_width<=128)
+		for (int i=0;i<3;++i){
+			status = clEnqueueWriteBuffer(clState->commandQueue, clState->outputBuffer, CL_FALSE, 0,
+					buffersize, blank_res, 0, NULL, NULL);
+			if (unlikely(status != CL_SUCCESS)) {
+					applog(LOG_ERR, "Error: clEnqueueWriteBuffer failed.");
+					return -1;
+			}
+			status = clEnqueueNDRangeKernel(clState->commandQueue, clState->kernel[work->hashid], 1, 0, globalThreads, 0, 0, NULL, &clState->evt);
+			if (unlikely(status != CL_SUCCESS)) {
+					applog(LOG_ERR, "Error %d: Enqueueing kernel onto command queue. (clEnqueueNDRangeKernel)", status);
+					return -1;
+			}
+		}
+		//Step 9: Sets Kernel arguments.
+		//Step 10: Running the kernel.
+
+
+	clState->eventStatus = CL_QUEUED;
+	while(clState->eventStatus != CL_COMPLETE)
+	{
+		usleep(5);
+		status = clGetEventInfo(clState->evt,CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(cl_int),&clState->eventStatus,NULL);
+		if (unlikely(status != CL_SUCCESS)) {
+			applog(LOG_ERR, "Error: clGetEventInfo failed error %d.", status);
 			return -1;
 		}
 	}
-		//Step 9: Sets Kernel arguments.
-		//Step 10: Running the kernel.
-		status = clEnqueueNDRangeKernel(clState->commandQueue, clState->kernel[13], 1, 0, globalThreads, 0, 0, NULL, NULL);
-
-
+    status = clEnqueueReadBuffer(clState->commandQueue, clState->outputBuffer, CL_FALSE, 0,
+                	buffersize, thrdata->res, 0, NULL, NULL);
 	if (unlikely(status != CL_SUCCESS)) {
-		applog(LOG_ERR, "Error %d: Enqueueing kernel onto command queue. (clEnqueueNDRangeKernel)", status);
-		return -1;
-	}
-
-	status = clEnqueueReadBuffer(clState->commandQueue, clState->outputBuffer, CL_FALSE, 0,
-				     buffersize, thrdata->res, 0, NULL, NULL);
-	if (unlikely(status != CL_SUCCESS)) {
-		applog(LOG_ERR, "Error: clEnqueueReadBuffer failed error %d. (clEnqueueReadBuffer)", status);
+        applog(LOG_ERR, "Error: clEnqueueReadBuffer failed error %d. (clEnqueueReadBuffer)", status);
 		return -1;
 	}
 	
 	/* The amount of work scanned can fluctuate when intensity changes
 	 * and since we do this one cycle behind, we increment the work more
 	 * than enough to prevent repeating work */
-	work->blk.nonce += gpu->max_hashes;
+        work->blk.nonce += gpu->max_hashes;
 
 	/* This finish flushes the readbuffer set with CL_FALSE in clEnqueueReadBuffer */
-	clFinish(clState->commandQueue);
 
 	/* FOUND entry is used as a counter to say how many nonces exist */
 	if (thrdata->res[found]) {
-		for(int i=0;i<buffersize/sizeof(uint)&&thrdata->res[i]!=0;++i)
-			thrdata->res[i]+=clState->nonceStart;
-		/* Clear the buffer again */
+                /* Clear the buffer again */
 		status = clEnqueueWriteBuffer(clState->commandQueue, clState->outputBuffer, CL_FALSE, 0,
 			buffersize, blank_res, 0, NULL, NULL);
 		if (unlikely(status != CL_SUCCESS)) {
@@ -2010,7 +2005,7 @@ static void opencl_thread_shutdown(struct thr_info *thr)
 	{
 		opencl_clean_kernel_info(&data->kernelinfo[i]);
 	}
-	for(int i=0;i<14;++i){
+	for(int i=0;i<13;++i){
 		clReleaseKernel(clState->kernel[i]);
 		clReleaseProgram(clState->program[i]);
 	}

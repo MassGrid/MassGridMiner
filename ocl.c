@@ -507,19 +507,18 @@ bool jh_get_kernel_binary(struct cgpu_info * const cgpu, _clState * const clStat
 		//if (binary_sizes[slot])
 		//	break;
 			/* copy over all of the generated binaries. */
-	applog(LOG_DEBUG, "%s: Binary size found in binary slot %u: %"PRId64, cgpu->dev_repr, (unsigned)slot, (int64_t)binary_sizes[slot]);
-	if (!binary_sizes[slot])
-		applogr(false, LOG_ERR, "OpenCL compiler generated a zero sized binary, FAIL!");
-	}	
+            applog(LOG_DEBUG, "%s: Binary size found in binary slot %u: %"PRId64, cgpu->dev_repr, (unsigned)slot, (int64_t)binary_sizes[slot]);
+            if (!binary_sizes[slot])
+                    applogr(false, LOG_ERR, "OpenCL compiler generated a zero sized binary, FAIL!");
 
 
-	status = clGetProgramInfo(clState->program[algorithmId], CL_PROGRAM_BINARIES, sizeof(binaries)*cpnd, binaries, NULL);
-	if (unlikely(status != CL_SUCCESS))
-		applogr(false, LOG_ERR, "Error %d: Getting program info. CL_PROGRAM_BINARIES (clGetProgramInfo)", status);
-	
-	bytes_resize(b, binary_sizes[slot]);
-	memcpy(bytes_buf(b), binaries[slot], bytes_len(b));
-	
+            status = clGetProgramInfo(clState->program[algorithmId], CL_PROGRAM_BINARIES, sizeof(binaries)*cpnd, binaries, NULL);
+            if (unlikely(status != CL_SUCCESS))
+                    applogr(false, LOG_ERR, "Error %d: Getting program info. CL_PROGRAM_BINARIES (clGetProgramInfo)", status);
+
+            bytes_resize(b, binary_sizes[slot]);
+            memcpy(bytes_buf(b), binaries[slot], bytes_len(b));
+        }
 	for (slot = 0; slot < cpnd; ++slot)
 		free(binaries[slot]);
 	free(binaries);
@@ -842,27 +841,22 @@ err2:
 		clState->vwidth = clState->preferred_vwidth;
 		data->vwidth = clState->preferred_vwidth;
 	}
-
+	
 	clState->inputBuffer = clCreateBuffer(clState->context, CL_MEM_READ_WRITE, 64 * sizeof(unsigned char), NULL, &status );
 	if (status != CL_SUCCESS) {
 		applog(LOG_ERR, "Error %d: clCreateBuffer (inputBuffer)", status);
 		goto err;
 	}
 	
-	clState->deviceBuffer = clCreateBuffer(clState->context, CL_MEM_READ_WRITE , 64 * sizeof(unsigned char)*GLOBALTHREAD, NULL, &status ); 
-	if (status != CL_SUCCESS) {
-		applog(LOG_ERR, "Error %d: clCreateBuffer (deviceBuffer)", status);
-		goto err;
-	}
 	
 	clState->outputBuffer = clCreateBuffer(clState->context, CL_MEM_READ_WRITE, OPENCL_MAX_BUFFERSIZE, NULL, &status );
 	if (status != CL_SUCCESS) {
-		applog(LOG_ERR, "Error %d: clCreateBuffer (inputBuffer)", status);
+		applog(LOG_ERR, "Error %d: clCreateBuffer (outputBuffer)", status);
 		goto err;
 	}
 	char *algorithmname[]={"blake","bmw","groestl","skein","jh","keccak",
-					"luffa","cubehash","shavite","simd","echo","hamsi",
-					"fugue","sha256d"};
+	"luffa","cubehash","shavite","simd","echo","hamsi",
+	"fugue"};
 	bytes_t binary_bytes = BYTES_INIT;
 	for(int i=0;i<sizeof(algorithmname)/sizeof (char*);++i)
 	{

@@ -154,7 +154,6 @@ void SHA256Finalize(SHA256_CTX *ctx, BYTE *out) {
 	}
 }
 
-#define FOUND 0x0F
 __kernel void scanHash_post(__global char* input,__global uint* goodNonce, const ulong target)
 {
 	uint gid = get_global_id(0);

@@ -1469,7 +1469,8 @@ struct work {
 	unsigned char	midstate[32];
 	unsigned char	target[32];
 	unsigned char	hash[32];
-
+	uint8_t	hashbase[65];
+	int hashid;
 	double share_diff;
 
 	int		rolls;

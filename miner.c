@@ -170,6 +170,8 @@ time_t last_getwork;
 int opt_dynamic_interval = 7;
 int nDevs;
 int opt_g_threads = -1;
+int opt_gpuglobal_threads = -1;
+int opt_gputhread_width = -1 ;
 #endif
 #ifdef USE_SCRYPT
 static char detect_algo = 1;
@@ -2450,8 +2452,11 @@ static struct opt_table opt_config_table[] = {
 		     set_int_0_to_9999, opt_show_intval, &opt_platform_id,
 		     "Select OpenCL platform ID to use for GPU mining"),
 	OPT_WITH_ARG("--gpu-threads|-g",
-	             set_gpu_threads, opt_show_intval, &opt_g_threads,
-	             opt_hidden),
+	             set_gpuglobal_threads, opt_show_intval, &opt_gpuglobal_threads,
+				 opt_hidden),
+	OPT_WITH_ARG("--gpu-threads-width",
+	             set_gputhread_width, opt_show_intval, &opt_gputhread_width,
+				 opt_hidden),
 #ifdef HAVE_ADL
 	OPT_WITH_ARG("--gpu-engine",
 		     set_gpu_engine, NULL, NULL,

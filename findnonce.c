@@ -16,7 +16,20 @@
 #include <inttypes.h>
 #include <pthread.h>
 #include <string.h>
-
+#include "crypto/w_blake.h"
+#include "crypto/w_bmw.h"
+#include "crypto/w_groestl.h"
+#include "crypto/w_jh.h"
+#include "crypto/w_keccak.h"
+#include "crypto/w_skein.h"
+#include "crypto/w_luffa.h"
+#include "crypto/w_cubehash.h"
+#include "crypto/w_shavite.h"
+#include "crypto/w_simd.h"
+#include "crypto/w_echo.h"
+#include "crypto/w_hamsi.h"
+#include "crypto/w_fugue.h"
+#include "crypto/SHA256Digest.h"
 #include "findnonce.h"
 #include "miner.h"
 
@@ -143,6 +156,44 @@ struct pc_data {
 	enum cl_kernels kinterface;
 };
 
+void (*jump[])(unsigned char* input, unsigned char* output)={
+    blake_scanHash_post,bmw_scanHash_post,groestl_scanHash_post,skein_scanHash_post,
+    jh_scanHash_post,keccak_scanHash_post,luffa_scanHash_post,cubehash_scanHash_post,
+    shavite_scanHash_post, simd_scanHash_post, echo_scanHash_post, hamsi_scanHash_post, fugue_scanHash_post
+};
+bool jumphash_check(struct work *work,uint32_t nonce)
+{
+	const uint8_t *data = work->data;
+	uint8_t * const hash = work->hash;
+	const uint64_t* p_target=(uint64_t *) work->target;
+	uint8_t temp[500],base[32],result[32],output0[65],output1[65];
+	const uint64_t*	resulttarget=(uint64_t *) result;
+	swap32yes(temp,data,76 / 4);
+
+	SHA256_CTX ctx;
+	SHA256Initialize(&ctx);
+	SHA256Update(&ctx,(BYTE*)temp,76);
+	SHA256Finalize(&ctx,(BYTE*)base);
+	Hex2Str(base,output0,32);
+	int id=bswap_16(((uint16_t *)data)[3])%13;
+	
+	((uint32_t *)output0)[14]^=((uint32_t *)output0)[15];
+	((uint32_t *)output0)[15]=nonce;
+	jump[id](output0,output1);
+
+	SHA256Reset(&ctx);
+	SHA256Initialize(&ctx);
+	SHA256Update(&ctx,(BYTE*)output1,64);
+	SHA256Finalize(&ctx,(BYTE*)result);
+
+    memcpy(hash,result,32);
+	if(resulttarget[3]<p_target[3])
+        return true;
+    uint8_t screen[65];
+    Hex2Str(result,screen,32);
+    applog(LOG_WARNING, "Wrong Hash: %s",screen);
+	return false;
+}
 static void *postcalc_hash(void *userdata)
 {
 	struct pc_data *pcd = (struct pc_data *)userdata;
@@ -168,6 +219,13 @@ static void *postcalc_hash(void *userdata)
 
 	for (entry = 0; entry < pcd->res[found]; entry++) {
 		uint32_t nonce = pcd->res[entry];
+		if(!jumphash_check(&pcd->work,nonce))
+		{		
+			applog(LOG_WARNING, "%"PRIpreprv": invalid hash target - HW error",
+                        thr->cgpu->proc_repr);
+            inc_hw_errors_only(thr);
+			continue;
+		}
 #ifdef USE_OPENCL_FULLHEADER
 		if (pcd->kinterface == KL_FULLHEADER)
 			nonce = swab32(nonce);

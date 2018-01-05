@@ -1,6 +1,5 @@
 // kernel-interface: blake JumpHash
-
-#include "util_hash.cl"
+#include "sha256d.cl"
 #ifdef GOFFSET
 #endif
 __constant static const sph_u64 BLAKE_IV512[8] = {
@@ -398,82 +397,34 @@ void blake(hash_t* hash)
 	hash->h8[7] = H7;
 }
 
-
-
-__kernel void scanHash_pre(__global char* input, __global char* output,const uint nonceStart)
+__kernel void scanHash(__global uchar* input,__global uint* goodNonce, const ulong target,const uint nonceStart)
 {
 	uint gid = get_global_id(0);
-	//todo : assemble hash data inside kernel with nonce
-	hash_t hashdata;
-	for (int i = 0; i < 64; i++) {
-		hashdata.h1[i] = input[i];
-	}
-	hashdata.h4[14] = hashdata.h4[14] ^ hashdata.h4[15];
-	hashdata.h4[15] = gid+nonceStart;
-	blake(&hashdata);
-	for (int i = 0; i < 64; i++) {
-		output[64*gid+i] = hashdata.h1[i];
-	}
-	barrier(CLK_GLOBAL_MEM_FENCE);
-}
-__kernel void scanHash_post(__global char* input, __global char* output,__global uint* goodNonce, const ulong target)
-{
-	uint gid = get_global_id(0);
-	
-	//todo : assemble hash data inside kernel with nonce
-	hash_t hashdata;
-	for (int i = 0; i < 64; i++) {
-		hashdata.h1[i] = input[64*gid+i];
-	}
-	blake(&hashdata);
+	__local hash_t hashdatasrc;
+	hash_t hashdatadst;
+	event_t evt;
+	evt=async_work_group_copy(( __local uchar*)hashdatasrc.h1,input,64,0);
+	wait_group_events(1,&evt);
+	hashdatasrc.h4[14] = hashdatasrc.h4[14] ^ hashdatasrc.h4[15];
 
-	ulong outcome = hashdata.h8[3];
-	bool result = (outcome <= target);
+	for(int i=0;i<THREADWIDTH;++i){
+		for(int i=0;i<8;++i)
+			hashdatadst.h8[i]=hashdatasrc.h8[i];
+		hashdatadst.h4[15] = gid*THREADWIDTH+i+nonceStart;
+		blake(&hashdatadst);
 
-	if (result) {
-		//printf("gid %d hit target!\n", gid);
-		goodNonce[0] = gid;
-		for (int i = 0; i < 64; i++) {
-		output[i] = hashdata.h1[i];
+		//sha256d
+		hash_t32 output;
+		SHA256_CTX ctx;
+		SHA256Initialize(&ctx);
+		SHA256Update(&ctx, (BYTE *)hashdatadst.h1, 64);
+		SHA256Finalize(&ctx, (BYTE *)output.h1);
+		ulong outcome = output.h8[3];
+		bool result = (outcome <= target);
+		if (result) {
+			//printf("gid %d hit target!\n", gid*THREADWIDTH+i+nonceStart);
+			goodNonce[goodNonce[FOUND]++]=gid*THREADWIDTH+i+nonceStart;
+		}
+		barrier(CLK_GLOBAL_MEM_FENCE);
 	}
-		//[atomic_inc(output + 0xFF)] = SWAP4(gid);
-	}
-	barrier(CLK_GLOBAL_MEM_FENCE);
-}
-__kernel void scanHash_check_pre(__global char* input, __global char* output, const uint nonce)
-{
-	uint gid = get_global_id(0);
-	//todo : assemble hash data inside kernel with nonce
-	hash_t hashdata;
-	for (int i = 0; i < 64; i++) {
-		hashdata.h1[i] = input[i];
-	}
-	hashdata.h4[14] = hashdata.h4[14] ^ hashdata.h4[15];
-	hashdata.h4[15] = nonce;
-
-	blake(&hashdata);
-	for (int i = 0; i < 64; i++) {
-		output[64*gid+i] = hashdata.h1[i];
-	}
-	barrier(CLK_GLOBAL_MEM_FENCE);
-}
-__kernel void hashTest(__global char* in, __global char* out)
-{
-	hash_t input;
-	for (int i = 0; i < 64; i++) {
-		input.h1[i] = in[i];
-	}
-
-	blake(&input);
-
-	for (int i = 0; i < 64; i++) {
-		out[i] = input.h1[i];
-	}
-}
-
-
-__kernel void helloworld(__global char* in, __global char* out)
-{
-	int num = get_global_id(0);
-	out[num] = in[num] + 1;
 }
