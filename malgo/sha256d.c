@@ -101,7 +101,7 @@ struct mining_algorithm malgo_sha256d = {
 	.opencl_intensity_to_oclthreads = opencl_intensity_to_oclthreads_sha256d,
 	.opencl_min_oclthreads =       0x20,  // intensity -10
 	.opencl_max_oclthreads = 0x20000000,  // intensity  14
-	.opencl_min_nonce_diff = 1.,
+	.opencl_min_nonce_diff = 0.0001,
 	.opencl_get_default_kernel_file = opencl_get_default_kernel_file_sha256d,
 #endif
 };

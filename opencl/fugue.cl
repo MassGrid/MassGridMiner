@@ -763,17 +763,12 @@ void fugue(hash_t* hash)
 }
 __kernel void scanHash(__global uchar* input,__global uint* goodNonce, const ulong target,const uint nonceStart)
 {
-	uint gid = get_global_id(0);
-	__local hash_t hashdatasrc;
+		uint gid = get_global_id(0);
 	hash_t hashdatadst;
-	event_t evt;
-	evt=async_work_group_copy(( __local uchar*)hashdatasrc.h1,input,64,0);
-	wait_group_events(1,&evt);
-	hashdatasrc.h4[14] = hashdatasrc.h4[14] ^ hashdatasrc.h4[15];
-	for(int i=0;i<THREADWIDTH;++i){
-		for(int i=0;i<8;++i)
-			hashdatadst.h8[i]=hashdatasrc.h8[i];
-		hashdatadst.h4[15] = gid*THREADWIDTH+i+nonceStart;
+		for(int j=0;j<64;++j)
+			hashdatadst.h1[j]=input[j];
+		hashdatadst.h4[14] = hashdatadst.h4[14] ^ hashdatadst.h4[15];
+		hashdatadst.h4[15] = gid+nonceStart;
 		fugue(&hashdatadst);
 
 		//sha256d
@@ -786,8 +781,8 @@ __kernel void scanHash(__global uchar* input,__global uint* goodNonce, const ulo
 		bool result = (outcome <= target);
 		if (result) {
 			//printf("gid %d hit target!\n", gid*THREADWIDTH+i+nonceStart);
-			goodNonce[goodNonce[FOUND]++]=gid*THREADWIDTH+i+nonceStart;
+			goodNonce[goodNonce[FOUND]++]=gid+nonceStart;
 		}
 		barrier(CLK_GLOBAL_MEM_FENCE);
-	}
+	
 }

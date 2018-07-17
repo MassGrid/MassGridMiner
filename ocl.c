@@ -725,7 +725,7 @@ err2:
 	// Create an OpenCL command queue
 	/////////////////////////////////////////////////////////////////
 	clState->commandQueue = clCreateCommandQueue(clState->context, devices[gpu],
-						     CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, &status);
+                             CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, &status);
 	if (status != CL_SUCCESS) /* Try again without OOE enable */
 		clState->commandQueue = clCreateCommandQueue(clState->context, devices[gpu], 0 , &status);
 	if (status != CL_SUCCESS) {
@@ -855,8 +855,7 @@ err2:
 		goto err;
 	}
 	char *algorithmname[]={"blake","bmw","groestl","skein","jh","keccak",
-	"luffa","cubehash","shavite","simd","echo","hamsi",
-	"fugue"};
+		"luffa","cubehash","shavite","simd","echo","hamsi","fugue","shabal","sha2big","haval","panama","blake256","skein256"};
 	bytes_t binary_bytes = BYTES_INIT;
 	for(int i=0;i<sizeof(algorithmname)/sizeof (char*);++i)
 	{

@@ -439,7 +439,7 @@ const sph_u32 AES3_C[256] = {
 	} while (0)
 
 
-void echo(hash_t* hash)
+void w_echo(hash_t* hash)
 {
 
 
@@ -523,7 +523,7 @@ void echo_scanHash_pre(unsigned char* input, unsigned  char* output, const unsig
 	}
 	hashdata.h4[14] = hashdata.h4[14] ^ hashdata.h4[15];
 	hashdata.h4[15] = nonce;
-	echo(&hashdata);
+	w_echo(&hashdata);
 	for (int i = 0; i < 64; i++) {
 		output[i] = hashdata.h1[i];
 	}
@@ -534,7 +534,7 @@ void echo_scanHash_post(unsigned char* input, unsigned char* output)
 	for (int i = 0; i < 64; i++) {
 		hashdata.h1[i] = input[i];
 	}
-	echo(&hashdata);
+	w_echo(&hashdata);
 	for (int i = 0; i < 64; i++) {
 		output[i] = hashdata.h1[i];
 	}

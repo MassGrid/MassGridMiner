@@ -172,6 +172,7 @@ int nDevs;
 int opt_g_threads = -1;
 int opt_gpuglobal_threads = -1;
 int opt_gputhread_width = -1 ;
+int opt_work_id = -1 ;
 #endif
 #ifdef USE_SCRYPT
 static char detect_algo = 1;
@@ -2457,6 +2458,9 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--gpu-threads-width",
 	             set_gputhread_width, opt_show_intval, &opt_gputhread_width,
 				 opt_hidden),
+        OPT_WITH_ARG("--work-id",
+                     set_work_id, opt_show_intval, &opt_work_id,
+                                 opt_hidden),
 #ifdef HAVE_ADL
 	OPT_WITH_ARG("--gpu-engine",
 		     set_gpu_engine, NULL, NULL,
@@ -10185,32 +10189,70 @@ void gen_hash(unsigned char *data, unsigned char *hash, int len)
  * cover a huge range of difficulty targets, though not all 256 bits' worth */
 static void pdiff_target_leadzero(void * const target_p, double diff)
 {
-	uint8_t *target = target_p;
-	diff *= 0x100000000;
-	int skip = log2(diff) / 8;
-	if (skip)
-	{
-		if (skip > 0x1c)
-			skip = 0x1c;
-		diff /= pow(0x100, skip);
-		memset(target, 0, skip);
-	}
-	uint32_t n = 0xffffffff;
-	n = (double)n / diff;
-	n = htobe32(n);
-	memcpy(&target[skip], &n, sizeof(n));
-	memset(&target[skip + sizeof(n)], 0xff, 32 - (skip + sizeof(n)));
+
+    uint32_t *target=(uint32_t *)target_p;
+    int64_t m;
+    int k;
+    for (k = 6; k > 0 && diff > 1.0; k--)
+    	diff /= 4294967296.0;
+    m = (uint64_t)(4294901760.0 / diff);
+    if (m == 0 && k == 6) {
+        memset(target, 0xff, 32);
+    } else {
+        memset(target, 0xff, 32);
+        target[1] = (uint32_t)m;
+        target[0] = (uint32_t)(m >> 32);
+    }
+//	uint8_t *target = target_p;
+//        //applog(LOG_DEBUG,"zero pdiff 0 %f",diff);
+//	diff *= 0x100000000;
+
+//        //applog(LOG_DEBUG,"zero pdiff 1 %f",diff);
+//        unsigned int skip = log2(diff) / 8;
+
+//       // applog(LOG_DEBUG,"zero skip 2 %u",skip);
+//	if (skip)
+//	{
+
+//		if (skip > 0x1c)
+//                        skip = 0x1c;
+
+//                //applog(LOG_DEBUG,"zero skip 2.5 %u",skip);
+//		diff /= pow(0x100, skip);
+
+//                //applog(LOG_DEBUG,"zero pdiff 3 %f",diff);
+//		memset(target, 0, skip);
+
+//                //applog(LOG_DEBUG,"zero pdiff 4 %f",diff);
+//	}
+
+//	uint32_t n = 0xffffffff;
+//	n = (double)n / diff;
+
+//        //applog(LOG_DEBUG,"zero n 5 %d",n);
+//	n = htobe32(n);
+
+//       // applog(LOG_DEBUG,"zero n 6 %d",n);
+//	memcpy(&target[skip], &n, sizeof(n));
+
+//        //applog(LOG_DEBUG,"zero n  7 %d",n);
+//	memset(&target[skip + sizeof(n)], 0xff, 32 - (skip + sizeof(n)));
+
+//        applog(LOG_DEBUG,"zero n 8 %d",n);
 }
 
 void set_target_to_pdiff(void * const dest_target, const double pdiff)
 {
-	unsigned char rtarget[32];
+	uint64_t rtarget[32],ttarget[32];
+        //applog(LOG_DEBUG,"pdiff 0 %f",pdiff);
 	pdiff_target_leadzero(rtarget, pdiff);
-	swab256(dest_target, rtarget);
-	
+    swab256(ttarget, rtarget);
+    swap32yes(rtarget, ttarget,32/4);
+    memcpy(dest_target,rtarget,32);
 	if (opt_debug) {
 		char htarget[65];
-		bin2hex(htarget, rtarget, 32);
+		swab256(ttarget, rtarget);
+        bin2hex(htarget, ttarget, 32);
 		applog(LOG_DEBUG, "Generated target %s", htarget);
 	}
 }

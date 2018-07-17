@@ -30,6 +30,13 @@
 #include "crypto/w_hamsi.h"
 #include "crypto/w_fugue.h"
 #include "crypto/SHA256Digest.h"
+
+#include "crypto/w_shabal.h"
+#include "crypto/w_sha2big.h"
+#include "crypto/w_haval.h"
+#include "crypto/w_panama.h"
+#include "crypto/w_blake256.h"
+#include "crypto/w_skein256.h"
 #include "findnonce.h"
 #include "miner.h"
 
@@ -159,7 +166,9 @@ struct pc_data {
 void (*jump[])(unsigned char* input, unsigned char* output)={
     blake_scanHash_post,bmw_scanHash_post,groestl_scanHash_post,skein_scanHash_post,
     jh_scanHash_post,keccak_scanHash_post,luffa_scanHash_post,cubehash_scanHash_post,
-    shavite_scanHash_post, simd_scanHash_post, echo_scanHash_post, hamsi_scanHash_post, fugue_scanHash_post
+    shavite_scanHash_post, simd_scanHash_post, echo_scanHash_post, hamsi_scanHash_post, fugue_scanHash_post,
+	shabal_scanHash_post,sha2big_scanHash_post,haval_scanHash_post,panama_scanHash_post,
+	blake256_scanHash_post,skein256_scanHash_post
 };
 bool jumphash_check(struct work *work,uint32_t nonce)
 {
@@ -175,8 +184,14 @@ bool jumphash_check(struct work *work,uint32_t nonce)
 	SHA256Update(&ctx,(BYTE*)temp,76);
 	SHA256Finalize(&ctx,(BYTE*)base);
 	Hex2Str(base,output0,32);
-	int id=bswap_16(((uint16_t *)data)[3])%13;
-	
+	int id=6;
+	if(bswap_32(((uint32_t*)data)[0])==5)
+		id=bswap_16(((uint16_t *)data)[3])%13;
+	else{
+		id=bswap_16(((uint16_t *)data)[3])%18;
+		if(id>11)
+			++id;
+	}
 	((uint32_t *)output0)[14]^=((uint32_t *)output0)[15];
 	((uint32_t *)output0)[15]=nonce;
 	jump[id](output0,output1);
@@ -231,7 +246,7 @@ static void *postcalc_hash(void *userdata)
 			nonce = swab32(nonce);
 #endif
 
-		applog(LOG_DEBUG, "OCL NONCE %u found in slot %d", nonce, entry);
+        applog(LOG_DEBUG, "OCL NONCE %u found in slot %d", nonce, pcd->thr->id);
 		submit_nonce(thr, &pcd->work, nonce);
 	}
 
@@ -264,8 +279,8 @@ void postcalc_hash_async(struct thr_info * const thr, struct work * const work, 
 		buffersize = BUFFERSIZE;
 	memcpy(&pcd->res, res, buffersize);
 
-	if (pthread_create(&pcd->pth, NULL, postcalc_hash, (void *)pcd)) {
-		applog(LOG_ERR, "Failed to create postcalc_hash thread");
+        if (pthread_create(&pcd->pth, NULL, postcalc_hash, (void *)pcd)) {
+                applog(LOG_ERR, "Failed to create postcalc_hash thread");
 		return;
 	}
 }

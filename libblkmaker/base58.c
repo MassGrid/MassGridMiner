@@ -20,7 +20,7 @@
 #include <blkmaker.h>
 
 #include "private.h"
-#include <stdio.h>
+
 bool _blkmk_b58tobin(void *bin, size_t binsz, const char *b58, size_t b58sz) {
 	return b58tobin(bin, &binsz, b58, b58sz);
 }
@@ -37,13 +37,14 @@ size_t blkmk_address_to_script(void *out, size_t outsz, const char *addr) {
 	const size_t b58sz = strlen(addr);
 	int addrver;
 	size_t rv;
+	
 	rv = sizeof(addrbin);
 	if (!b58_sha256_impl)
 		b58_sha256_impl = blkmk_sha256_impl;
 	if (!b58tobin(addrbin, &rv, addr, b58sz))
 		return 0;
 	addrver = b58check(addrbin, sizeof(addrbin), addr, b58sz);
-		switch (addrver) {
+	switch (addrver) {
 		case   0:  // Bitcoin pubkey hash
 		case 111:  // Testnet pubkey hash
 			if (outsz < (rv = 25))
@@ -65,23 +66,23 @@ size_t blkmk_address_to_script(void *out, size_t outsz, const char *addr) {
 			cout[22] = 0x87;  // OP_EQUAL
 			return rv;
 		case  50://Mlgbcoin pubkey hash
-			if (outsz < (rv = 25))
-					return rv;
-			cout[ 0] = 0x76;  // OP_DUP
-			cout[ 1] = 0xa9;  // OP_HASH160
-			cout[ 2] = 0x14;  // push 20 bytes
-			memcpy(&cout[3], &addrbin[1], 20);
-			cout[23] = 0x88;  // OP_EQUALVERIFY
-			cout[24] = 0xac;  // OP_CHECKSIG
-			return rv;
-		case  38://Mlgbcoin script hash
-			if (outsz < (rv = 23))
-				return rv;
-			cout[ 0] = 0xa9;  // OP_HASH160
-			cout[ 1] = 0x14;  // push 20 bytes
-			memcpy(&cout[2], &addrbin[1], 20);
-			cout[22] = 0x87;  // OP_EQUAL
-			return rv;
+		    if (outsz < (rv = 25))
+		        return rv;
+		    cout[ 0] = 0x76;  // OP_DUP
+		    cout[ 1] = 0xa9;  // OP_HASH160
+		    cout[ 2] = 0x14;  // push 20 bytes
+		    memcpy(&cout[3], &addrbin[1], 20);
+		    cout[23] = 0x88;  // OP_EQUALVERIFY
+		    cout[24] = 0xac;  // OP_CHECKSIG
+		    return rv;
+    	case  38://Mlgbcoin script hash
+		    if (outsz < (rv = 23))
+		        return rv;
+		    cout[ 0] = 0xa9;  // OP_HASH160
+		    cout[ 1] = 0x14;  // push 20 bytes
+		    memcpy(&cout[2], &addrbin[1], 20);
+		    cout[22] = 0x87;  // OP_EQUAL
+		    return rv;
 		default:
 			return 0;
 	}

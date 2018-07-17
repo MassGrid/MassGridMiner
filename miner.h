@@ -620,7 +620,7 @@ struct thr_info {
 	int		id;
 	int		device_thread;
 	bool		primary_thread;
-
+    uint32_t *blank_res;
 	bool		has_pth;
 	pthread_t	pth;
 	struct thread_q	*q;

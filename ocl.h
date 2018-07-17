@@ -28,10 +28,11 @@ struct _clState {
 	cl_context context;
 	cl_command_queue commandQueue;
 	cl_mem inputBuffer;
-    cl_event evt;
+    cl_event evt[3];
+    int globalthread[19];
 	cl_mem outputBuffer;
-	cl_program program[13];
-	cl_kernel kernel[13];
+	cl_program program[19];
+	cl_kernel kernel[19];
 	uint nonceStart;
 	cl_ulong target;
 #ifdef MAX_CLBUFFER0_SZ

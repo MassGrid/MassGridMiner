@@ -68,6 +68,6 @@ typedef union {
 	uint h4[8];
 	ulong h8[4];
 } hash_t32;
-#define THREADWIDTH 128
+#define THREADWIDTH 1
 #define FOUND 0x0F
 #endif //__UTIL_HASH__

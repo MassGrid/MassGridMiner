@@ -2484,9 +2484,9 @@ size_t script_to_address(char *out, size_t outsz, const uint8_t *script, size_t 
 	bool bok = false;
 	
 	if (scriptsz == 25 && script[0] == 0x76 && script[1] == 0xa9 && script[2] == 0x14 && script[23] == 0x88 && script[24] == 0xac)
-		bok = b58check_enc(addr, &size, testnet ? 0x6f : 0x00, &script[3], 20);
+		bok = b58check_enc(addr, &size, testnet ? 0x6f : 0x32, &script[3], 20);
 	else if (scriptsz == 23 && script[0] == 0xa9 && script[1] == 0x14 && script[22] == 0x87)
-		bok = b58check_enc(addr, &size, testnet ? 0xc4 : 0x05, &script[2], 20);
+		bok = b58check_enc(addr, &size, testnet ? 0xc4 : 0x26, &script[2], 20);
 	if (!bok)
 		return 0;
 	if (outsz >= size)
@@ -2742,13 +2742,15 @@ out:
 	return ret;
 }
 
-static bool parse_diff(struct pool *pool, json_t *val)
+static bool parse_diff(struct pool *pool, json_t *val,double e)
 {
 	const struct mining_goal_info * const goal = pool->goal;
-	const struct mining_algorithm * const malgo = goal->malgo;
+    const struct mining_algorithm * const malgo = goal->malgo;
 	double diff;
-
-	diff = json_number_value(json_array_get(val, 0));
+		
+    diff = json_number_value(json_array_get(val, 0));
+    if(e!=0)
+            diff=e;
 	if (diff == 0)
 		return false;
 
@@ -2756,9 +2758,9 @@ static bool parse_diff(struct pool *pool, json_t *val)
 	{
 		// Assume fractional values are proper bdiff per specification
 		// Allow integers to be interpreted as pdiff, since the difference is trivial and some pools see it this way
-		diff = bdiff_to_pdiff(diff);
+                diff = bdiff_to_pdiff(diff);
 	}
-	
+
 #ifdef USE_SHA256D
 	if (malgo->algo == POW_SHA256D && diff < 1 && diff > 0.999)
 		diff = 1;
@@ -2787,7 +2789,7 @@ static bool parse_diff(struct pool *pool, json_t *val)
 	set_target_to_pdiff(pool->next_target, diff);
 	cg_wunlock(&pool->data_lock);
 
-	applog(LOG_DEBUG, "Pool %d stratum difficulty set to %g", pool->pool_no, diff);
+        applog(LOG_DEBUG, "Pool %d stratum difficulty set to %g", pool->pool_no, diff);
 
 	return true;
 }
@@ -3021,12 +3023,12 @@ bool parse_method(struct pool *pool, char *s)
 	json_t *val = NULL, *method, *err_val, *params;
 	json_error_t err;
 	bool ret = false;
-	const char *buf;
+        const char *buf;
 
 	if (!s)
 		goto out;
-
-	val = JSON_LOADS(s, &err);
+        applog(LOG_INFO, "JSON Receive Data: %s",s);
+        val = JSON_LOADS(s, &err);
 	if (!val) {
 		applog(LOG_INFO, "JSON decode failed(%d): %s", err.line, err.text);
 		goto out;
@@ -3065,9 +3067,17 @@ bool parse_method(struct pool *pool, char *s)
 		goto out;
 	}
 
-	if (!strncasecmp(buf, "mining.set_difficulty", 21) && parse_diff(pool, params)) {
-		ret = true;
+        if (!strncasecmp(buf, "mining.set_difficulty", 21)) {
+            char* p=strstr(s,"[")+1,*e=strstr(s,"]");
+            int len=e-p;
+            char strdiff[48]={0};
+            memcpy(strdiff,p,len);
+           // applog(LOG_ERR, "strdiff  %s",strdiff);
+            double diff_e=atof(strdiff);
+            if( parse_diff(pool, params,diff_e)){
+                ret = true;
 		goto out;
+            }
 	}
 
 	if (!strncasecmp(buf, "client.reconnect", 16) && parse_reconnect(pool, params)) {
