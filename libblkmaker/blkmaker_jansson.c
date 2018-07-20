@@ -428,7 +428,7 @@ const char *blktmpl_add_jansson(blktemplate_t *tmpl, const json_t *json, time_t 
 		{
 			char *scrypt = json_string_value(v2);
 			tmpl->masternode_script=calloc(strlen(scrypt)/2,sizeof(uint8_t));
-			if(!hex2bin(tmpl->masternode_script,scrypt,strlen(scrypt)/2))
+			if(!my_hex2bin(tmpl->masternode_script,scrypt,strlen(scrypt)/2))
 				return "Error decoding 'masternode script'";
 		}
 		if((v2 = json_object_get(v, "amount")) && json_is_number(v2))

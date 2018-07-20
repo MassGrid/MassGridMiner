@@ -171,6 +171,7 @@ int opt_dynamic_interval = 7;
 int nDevs;
 int opt_g_threads = -1;
 int opt_gpuglobal_threads = -1;
+bool en_setting_global_thread = true;
 int opt_gputhread_width = -1 ;
 int opt_work_id = -1 ;
 #endif

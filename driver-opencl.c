@@ -298,6 +298,7 @@ extern void enable_curses(void);
 extern int mining_threads;
 extern int opt_g_threads;
 extern int opt_gpuglobal_threads;
+extern bool en_setting_global_thread;
 extern int opt_work_id;
 extern int opt_gputhread_width;
 extern bool ping;
@@ -1539,6 +1540,7 @@ static int opencl_autodetect()
 	if (opt_gpuglobal_threads == -1) {
 		// NOTE: This should ideally default to 2 for non-scrypt
                 opt_gpuglobal_threads = 0xffffff;
+				en_setting_global_thread = false;
         }
 	if (opt_gputhread_width == -1) {
 		// NOTE: This should ideally default to 2 for non-scrypt
@@ -1961,7 +1963,11 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
                         memcpy(&(data->tv_gpustart), &tv_gpuend, sizeof(struct timeval));
                         data->intervals = 0;
                 }
-    double glbthr=opt_gpuglobal_threads;
+	double glbthr=opt_gpuglobal_threads;
+	if(!en_setting_global_thread)
+		switch(work->hashid){
+			case 12: glbthr = opt_gpuglobal_threads >> 4;
+		}
     globalThreads[0] = glbthr;
     hashes = globalThreads[0];
 	hashes *= clState->vwidth;
