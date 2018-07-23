@@ -1876,7 +1876,6 @@ void Hex2Str(unsigned char *sSrc, unsigned char *sDest, int nSrcLen)
 }
 void waitforEvent(_clState *clState,int i,int id,int hashid)
 {
-     //applog(LOG_ERR, "%d",i);
     cl_int status;
     clState->eventStatus = CL_QUEUED;
     while(clState->eventStatus != CL_COMPLETE)
@@ -1885,14 +1884,17 @@ void waitforEvent(_clState *clState,int i,int id,int hashid)
             status = clGetEventInfo(clState->evt[i],CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(cl_int),&clState->eventStatus,NULL);
             if (unlikely(status != CL_SUCCESS)) {
                     applog(LOG_ERR, "%d thr->id %d hashid %d Error: clGetEventInfo failed error %d.",i,id,hashid, status);
-                    //system("taskkill /im bfgminer.exe /f");
+#ifdef WIN32
+                    // system("taskkill /im bfgminer.exe /f");
+#else
+					// system("ps -ef | grep bfgminer | grep -v grep | cut -c 9-15 | xargs kill -s 9");
+#endif
                     return;
             }
 
-            //applog(LOG_ERR, "loop %d",i);
     }
-    //applog(LOG_ERR, "end %d",i);
 }
+static const float p106_glb[]={1.4,2,0.8,3,3,2.5,3,4,0.8,0.8,0.8,1.2,0.2,3,3,3,0.8,4,2};
 static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 				int64_t __maybe_unused max_nonce)
 {
@@ -1923,7 +1925,7 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 		}
         if(opt_work_id!=-1){
             work->hashid=opt_work_id;
-        applog(LOG_ERR, "chooose debug hashid %d",work->hashid);
+        applog(LOG_DEBUG, "chooose debug hashid %d",work->hashid);
         }
     }
 	cl_int status;
@@ -1965,10 +1967,8 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
                 }
 	double glbthr=opt_gpuglobal_threads;
 	if(!en_setting_global_thread)
-		switch(work->hashid){
-			case 12: glbthr = opt_gpuglobal_threads >> 4;
-		}
-    globalThreads[0] = glbthr;
+		glbthr = opt_gpuglobal_threads *p106_glb[work->hashid];
+    globalThreads[0] = (int)glbthr;
     hashes = globalThreads[0];
 	hashes *= clState->vwidth;
         gpu->max_hashes = glbthr;
