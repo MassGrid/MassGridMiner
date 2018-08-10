@@ -1894,7 +1894,7 @@ void waitforEvent(_clState *clState,int i,int id,int hashid)
 
     }
 }
-static const float p106_glb[]={1.4,2,0.8,3,3,2.5,3,4,0.8,0.8,0.8,1.2,0.2,3,3,3,0.8,4,2};
+static const float p106_glb[]={1.4,2,0.6,3,3,2.5,3,4,0.6,0.6,0.6,1.2,0.15,3,3,3,0.6,4,2};
 static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 				int64_t __maybe_unused max_nonce)
 {
