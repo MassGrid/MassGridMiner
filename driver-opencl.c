@@ -298,6 +298,7 @@ extern void enable_curses(void);
 extern int mining_threads;
 extern int opt_g_threads;
 extern int opt_gpuglobal_threads;
+extern int opt_eexit;
 extern bool en_setting_global_thread;
 extern int opt_work_id;
 extern int opt_gputhread_width;
@@ -801,6 +802,7 @@ const char *set_intensity(char *arg)
 
 _SET_INT_LIST2(gpu_threads, (v >= 1 && v <= 10), cgpu->threads)
 _SET_INT_LIST2(gpuglobal_threads, (v >= 1 && v <= 0xffffffff), opt_gpuglobal_threads)
+_SET_INT_LIST2(eexit, (v >= 0 && v <= 1), opt_eexit)
 _SET_INT_LIST2(work_id, (v >= 0 && v <= 18), opt_work_id)
 _SET_INT_LIST2(gputhread_width, (v >= 1 && v <= 0xffff), opt_gputhread_width)
 void write_config_opencl(FILE * const fcfg)
@@ -1542,6 +1544,9 @@ static int opencl_autodetect()
                 opt_gpuglobal_threads = 0xffffff;
 				en_setting_global_thread = false;
         }
+	if (opt_eexit == -1) {
+		opt_eexit = 0;
+	}
 	if (opt_gputhread_width == -1) {
 		// NOTE: This should ideally default to 2 for non-scrypt
                 opt_gputhread_width = 32;
@@ -1880,21 +1885,22 @@ void waitforEvent(_clState *clState,int i,int id,int hashid)
     clState->eventStatus = CL_QUEUED;
     while(clState->eventStatus != CL_COMPLETE)
     {
-            usleep(2);
+            usleep(200);
             status = clGetEventInfo(clState->evt[i],CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(cl_int),&clState->eventStatus,NULL);
             if (unlikely(status != CL_SUCCESS)) {
                     applog(LOG_ERR, "%d thr->id %d hashid %d Error: clGetEventInfo failed error %d.",i,id,hashid, status);
+					if(opt_eexit)
 #ifdef WIN32
-                    // system("taskkill /im bfgminer.exe /f");
+                    	system("taskkill /im bfgminer.exe /f");
 #else
-					// system("ps -ef | grep bfgminer | grep -v grep | cut -c 9-15 | xargs kill -s 9");
+						system("ps -ef | grep bfgminer | grep -v grep | cut -c 9-15 | xargs kill -s 9");
 #endif
                     return;
             }
 
     }
 }
-static const float p106_glb[]={1.4,2,0.6,3,3,2.5,3,4,0.6,0.6,0.6,1.2,0.15,3,3,3,0.6,4,2};
+static const float p106_glb[]={1.4,2,0.6,3,3,2.5,3,4,0.6,0.6,0.6,1.2,0.9,3,3,3,0.6,4,2};
 static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 				int64_t __maybe_unused max_nonce)
 {
@@ -1966,7 +1972,7 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
                         data->intervals = 0;
                 }
 	double glbthr=opt_gpuglobal_threads;
-	if(!en_setting_global_thread)
+	if(en_setting_global_thread)
 		glbthr = opt_gpuglobal_threads *p106_glb[work->hashid];
     globalThreads[0] = (int)glbthr;
     hashes = globalThreads[0];

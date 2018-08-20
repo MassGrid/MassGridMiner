@@ -123,6 +123,7 @@ extern const char *set_gpu_memdiff(char *arg);
 extern const char *set_gpu_powertune(char *arg);
 extern const char *set_gpu_threads(char *arg);
 extern const char *set_gpuglobal_threads(char *arg);
+extern const char *set_eexit(char *arg);
 extern const char *set_gputhread_width(char *arg);
 extern const char *set_work_id(char *arg);
 extern const char *set_gpu_vddc(char *arg);

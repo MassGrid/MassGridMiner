@@ -35,7 +35,7 @@ extern "C"{
 
 #include "util_hash.cl"
 #include "sha256d.cl"
-__constant void sph_enc32be(void *dst, sph_u32 val)
+void sph_enc32be(void *dst, sph_u32 val)
 {
 #if defined SPH_UPTR
 #if SPH_UNALIGNED
@@ -65,7 +65,7 @@ __constant void sph_enc32be(void *dst, sph_u32 val)
 #endif
 	}
 
-__constant void sph_enc32le(void *dst, sph_u32 val)
+void sph_enc32le(void *dst, sph_u32 val)
 {
 #if defined SPH_UPTR
 #if SPH_UNALIGNED
@@ -95,7 +95,7 @@ __constant void sph_enc32le(void *dst, sph_u32 val)
 #endif
 	}
 
-__constant sph_u32 sph_dec32le_aligned(const void *src)
+sph_u32 sph_dec32le_aligned(const void *src)
 {
 	#if SPH_LITTLE_ENDIAN
 			return *(const sph_u32 *)src;
