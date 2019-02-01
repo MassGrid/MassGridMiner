@@ -236,8 +236,8 @@ static void *postcalc_hash(void *userdata)
 		uint32_t nonce = pcd->res[entry];
 		if(!jumphash_check(&pcd->work,nonce))
 		{		
-			applog(LOG_WARNING, "%"PRIpreprv": invalid hash target - HW error",
-                        thr->cgpu->proc_repr);
+			applog(LOG_WARNING, "%"PRIpreprv": invalid hash target - HW error workid %d",
+				thr->cgpu->proc_repr,pcd->work.hashid);
             inc_hw_errors_only(thr);
 			continue;
 		}
@@ -246,7 +246,7 @@ static void *postcalc_hash(void *userdata)
 			nonce = swab32(nonce);
 #endif
 
-        applog(LOG_DEBUG, "OCL NONCE %u found in slot %d", nonce, pcd->thr->id);
+        applog(LOG_DEBUG, "OCL NONCE %u found in slot %d  workid %d", nonce, pcd->thr->id,pcd->work.hashid);
 		submit_nonce(thr, &pcd->work, nonce);
 	}
 

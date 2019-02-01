@@ -1931,8 +1931,8 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 		}
         if(opt_work_id!=-1){
             work->hashid=opt_work_id;
-        applog(LOG_DEBUG, "chooose debug hashid %d",work->hashid);
         }
+        applog(LOG_DEBUG, "choose debug hashid %d",work->hashid);
     }
 	cl_int status;
 

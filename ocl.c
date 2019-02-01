@@ -590,15 +590,23 @@ bool jh_readBinaryFromFile(_clState * const clState,const char* binaryfilename,b
 	return true;
 }
 static
-bool jh_build_kernel( _clState * const clState, const char *source, const size_t source_len,const int algorithmId)
+bool jh_build_kernel( _clState * const clState, const char *source, const size_t source_len,const int algorithmId,const char *name)
 {
 	cl_int status;
 	clState->program[algorithmId] = clCreateProgramWithSource(clState->context, 1, &source, &source_len, &status);
 	if (status != CL_SUCCESS)
 		applogr(false, LOG_ERR, "Error %d: Loading Binary into cl_program (clCreateProgramWithSource)", status);
-	char CompilerOptions[]= "-I opencl";
+	if((strstr(name,"Ellesmere")||strstr(name,"Baffin")||strstr(name,"Polaris")) && (algorithmId == 14 || algorithmId == 18 )){
+		char CompilerOptions[]= "-I opencl -cl-opt-disable";
+		applog(LOG_DEBUG, "device name %s algorithmId %d CompilerOptions %s", name,algorithmId,CompilerOptions);
+		status = bfg_clBuildProgram(&clState->program[algorithmId], clState->devid, CompilerOptions);
+	}else{
+		char CompilerOptions[]= "-I opencl";
+		applog(LOG_DEBUG, "device name %s algorithmId %d CompilerOptions %s", name,algorithmId,CompilerOptions);
+		status = bfg_clBuildProgram(&clState->program[algorithmId], clState->devid, CompilerOptions);
+
+	}
 	/* create a cl program executable for all the devices specified */
-	status = bfg_clBuildProgram(&clState->program[algorithmId], clState->devid, CompilerOptions);
 	if (status != CL_SUCCESS)
 	{
 		return false;	
@@ -725,7 +733,7 @@ err2:
 	// Create an OpenCL command queue
 	/////////////////////////////////////////////////////////////////
 	clState->commandQueue = clCreateCommandQueue(clState->context, devices[gpu],
-                             CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, &status);
+						     CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, &status);
 	if (status != CL_SUCCESS) /* Try again without OOE enable */
 		clState->commandQueue = clCreateCommandQueue(clState->context, devices[gpu], 0 , &status);
 	if (status != CL_SUCCESS) {
@@ -854,7 +862,7 @@ err2:
 		applog(LOG_ERR, "Error %d: clCreateBuffer (outputBuffer)", status);
 		goto err;
 	}
-	char *algorithmname[]={"blake","bmw","groestl","skein","jh","keccak",
+char *algorithmname[]={"blake","bmw","groestl","skein","jh","keccak",
 		"luffa","cubehash","shavite","simd","echo","hamsi","fugue","shabal","sha2big","haval","panama","blake256","skein256"};
 	bytes_t binary_bytes = BYTES_INIT;
 	for(int i=0;i<sizeof(algorithmname)/sizeof (char*);++i)
@@ -869,7 +877,7 @@ err2:
 				bytes_free(&binary_bytes);
 			int sourceSize[] = { 0 };
 			const char *source = file_contents(sourcename, sourceSize);
-			if(!jh_build_kernel(clState,source,*sourceSize,i))
+			if(!jh_build_kernel(clState,source,*sourceSize,i,name))
 			goto err;
 			else{
 				applog(LOG_DEBUG,"buid program :%s success",sourcename);
