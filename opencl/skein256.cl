@@ -148,7 +148,7 @@ void skein256_s(sph_u64 input[], sph_u64 *output)
 	p6 = h[6] + t[1];
 	p7 = h[7];
 
-	//#pragma unroll 
+	#pragma unroll 
 	for (int i = 1; i<19; i += 2) { Round_8_512(p0, p1, p2, p3, p4, p5, p6, p7, i); }
 	p0 ^= dt0;
 	p1 ^= dt1;
@@ -170,17 +170,17 @@ void skein256_s(sph_u64 input[], sph_u64 *output)
 	t[0] = t12[3];
 	t[1] = t12[4];
 	t[2] = t12[5];
-	p5 += t[0];  //p5 already equal h[5] 
+	p5 += t[0];
 	p6 += t[1];
 
-	//#pragma unroll
+	#pragma unroll
 	for (int i = 1; i<19; i += 2) { Round_8_512(p0, p1, p2, p3, p4, p5, p6, p7, i); }
 
 	output[0] = p0;
 	output[1] = p1;
 	output[2] = p2;
 	output[3] = p3;
-	barrier(CLK_LOCAL_MEM_FENCE);
+	barrier(CLK_GLOBAL_MEM_FENCE);
 }
 
 void skein256(hash_t* hash)
@@ -202,31 +202,27 @@ void skein256(hash_t* hash)
 	{
 		hash->h8[i + 4] = output[i];
 	}
-	//barrier(CLK_LOCAL_MEM_FENCE);
+	barrier(CLK_GLOBAL_MEM_FENCE);
 }
-
 __kernel void scanHash(__global uchar* input,__global uint* goodNonce, const ulong target,const uint nonceStart)
 {
 	uint gid = get_global_id(0);
 	hash_t hashdatadst;
-		for(int j=0;j<64;++j)
-			hashdatadst.h1[j]=input[j];
-		hashdatadst.h4[14] = hashdatadst.h4[14] ^ hashdatadst.h4[15];
-		hashdatadst.h4[15] = gid+nonceStart;
-		skein256(&hashdatadst);
+	for(int j=0;j<64;++j)
+		hashdatadst.h1[j]=input[j];
+	hashdatadst.h4[14] = hashdatadst.h4[14] ^ hashdatadst.h4[15];
+	hashdatadst.h4[15] = gid+nonceStart;
+	skein256(&hashdatadst);
 
-		//sha256d
-		hash_t32 output;
-		SHA256_CTX ctx;
-		SHA256Initialize(&ctx);
-		SHA256Update(&ctx, (BYTE *)hashdatadst.h1, 64);
-		SHA256Finalize(&ctx, (BYTE *)output.h1);
-		ulong outcome = output.h8[3];
-		bool result = (outcome <= target);
-		if (result) {
-			//printf("gid %d hit target!\n", gid*THREADWIDTH+i+nonceStart);
-			goodNonce[goodNonce[FOUND]++]=gid+nonceStart;
-		}
-		barrier(CLK_GLOBAL_MEM_FENCE);
-	
+	hash_t32 output;
+	SHA256_CTX ctx;
+	SHA256Initialize(&ctx);
+	SHA256Update(&ctx, (BYTE *)hashdatadst.h1, 64);
+	SHA256Finalize(&ctx, (BYTE *)output.h1);
+	ulong outcome = output.h8[3];
+	bool result = (outcome <= target);
+	if (result) {
+		goodNonce[goodNonce[FOUND]++]=gid+nonceStart;
+	}
+	barrier(CLK_GLOBAL_MEM_FENCE);
 }

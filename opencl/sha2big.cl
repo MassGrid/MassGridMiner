@@ -156,19 +156,12 @@ __constant const sph_u64 H512[8] = {
 		(r)[6] = SPH_T64((r)[6] + G); \
 		(r)[7] = SPH_T64((r)[7] + H); \
 	} while (0)
-
-
 #endif
-
 
 void sha2big(hash_t* hash)
 {
-	// uint gid = get_global_id(0);
-	//uint offset = get_global_offset(0);
-	//__global hash_t *hash = &(hashes[gid-offset]);
-
-	sph_u64 W[80];
-	sph_u64 state[8];
+	volatile sph_u64 W[80];
+	volatile sph_u64 state[8];
 
 	for (int i = 0; i < 8; i++)
 		W[i]=SWAP8(hash->h8[i]);
@@ -199,28 +192,26 @@ void sha2big(hash_t* hash)
 	barrier(CLK_GLOBAL_MEM_FENCE);
 }
 
- __kernel void scanHash(__global uchar* input,__global uint* goodNonce, const ulong target,const uint nonceStart)
+__kernel void scanHash(__global uchar* input,__global uint* goodNonce, const ulong target,const uint nonceStart)
 {
 	uint gid = get_global_id(0);
 	hash_t hashdatadst;
-		for(int j=0;j<64;++j)
-			hashdatadst.h1[j]=input[j];
-		hashdatadst.h4[14] = hashdatadst.h4[14] ^ hashdatadst.h4[15];
-		hashdatadst.h4[15] = gid+nonceStart;
-		sha2big(&hashdatadst);
+	for(int j=0;j<64;++j)
+		hashdatadst.h1[j]=input[j];
+	hashdatadst.h4[14] = hashdatadst.h4[14] ^ hashdatadst.h4[15];
+	hashdatadst.h4[15] = gid+nonceStart;
+	sha2big(&hashdatadst);
 
-		//sha256d
-		hash_t32 output;
-		SHA256_CTX ctx;
-		SHA256Initialize(&ctx);
-		SHA256Update(&ctx, (BYTE *)hashdatadst.h1, 64);
-		SHA256Finalize(&ctx, (BYTE *)output.h1);
-		ulong outcome = output.h8[3];
-		bool result = (outcome <= target);
-		if (result) {
-			//printf("gid %d hit target!\n", gid*THREADWIDTH+i+nonceStart);
-			goodNonce[goodNonce[FOUND]++]=gid+nonceStart;
-		}
-		barrier(CLK_GLOBAL_MEM_FENCE);
+	hash_t32 output;
+	SHA256_CTX ctx;
+	SHA256Initialize(&ctx);
+	SHA256Update(&ctx, (BYTE *)hashdatadst.h1, 64);
+	SHA256Finalize(&ctx, (BYTE *)output.h1);
+	ulong outcome = output.h8[3];
+	bool result = (outcome <= target);
+	if (result) {
+		goodNonce[goodNonce[FOUND]++]=gid+nonceStart;
+	}
+	barrier(CLK_GLOBAL_MEM_FENCE);
 	
 }
